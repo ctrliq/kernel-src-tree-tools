@@ -29,7 +29,11 @@ if [ "x86_64" == "${ARCH}" ] || [ "aarch64" == "${ARCH}" ]; then
     if [ -f configs/kernel-${VERSION}-${ARCH}.config ]; then
 	cp -v configs/kernel-${VERSION}-${ARCH}.config .config
     elif [ -f configs/kernel-${ARCH}-rhel.config ]; then
+	# Rocky 9 SIG CLOUD
 	cp -v configs/kernel-${ARCH}-rhel.config .config
+    elif [ -f configs/kernel-${ARCH}.config ]; then
+	# Rocky 8 SIG CLOUD
+	cp -v configs/kernel-${ARCH}.config .config
     else
 	echo "Error: Config file not found"
 	exit 1
