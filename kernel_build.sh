@@ -3,7 +3,7 @@
 
 pwd
 
-BRANCH=$(git branch | grep \* | cut -d ' ' -f2)
+BRANCH=$(git branch | grep \* | cut -d ' ' -f2 | sed -r 's/[{}/]/_/g')
 
 START=$(date +%s)
 START_MRPROPER=$(date +%s)
