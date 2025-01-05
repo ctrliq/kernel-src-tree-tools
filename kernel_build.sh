@@ -34,6 +34,9 @@ if [ "x86_64" == "${ARCH}" ] || [ "aarch64" == "${ARCH}" ]; then
     elif [ -f configs/kernel-${ARCH}.config ]; then
 	# Rocky 8 SIG CLOUD
 	cp -v configs/kernel-${ARCH}.config .config
+    elif [ -f configs/kernel-rt-${VERSION}-${ARCH}.config ]; then
+        cp -v configs/kernel-rt-${VERSION}-${ARCH}.config .config
+	# Some sort of RT build?
     else
 	echo "Error: Config file not found"
 	exit 1
