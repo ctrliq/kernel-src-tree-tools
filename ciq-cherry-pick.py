@@ -1,11 +1,12 @@
 import argparse
 import os
 import subprocess
+import git
 from ciq_helpers import CIQ_cherry_pick_commit_standardization
 from ciq_helpers import CIQ_original_commit_author_to_tag_string
 # from ciq_helpers import *
 
-MERGE_MSG = '.git/MERGE_MSG'
+MERGE_MSG = git.Repo(os.getcwd()).git_dir + '/MERGE_MSG'
 
 if __name__ == '__main__':
     print("CIQ custom cherry picker")
