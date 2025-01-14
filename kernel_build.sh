@@ -3,7 +3,7 @@
 
 pwd
 
-BRANCH=$(git branch | grep \* | cut -d ' ' -f2)
+BRANCH=$(git branch | grep \* | cut -d ' ' -f2 | sed -r 's/[{}/]/_/g')
 
 START=$(date +%s)
 START_MRPROPER=$(date +%s)
@@ -29,7 +29,14 @@ if [ "x86_64" == "${ARCH}" ] || [ "aarch64" == "${ARCH}" ]; then
     if [ -f configs/kernel-${VERSION}-${ARCH}.config ]; then
 	cp -v configs/kernel-${VERSION}-${ARCH}.config .config
     elif [ -f configs/kernel-${ARCH}-rhel.config ]; then
+	# Rocky 9 SIG CLOUD
 	cp -v configs/kernel-${ARCH}-rhel.config .config
+    elif [ -f configs/kernel-${ARCH}.config ]; then
+	# Rocky 8 SIG CLOUD
+	cp -v configs/kernel-${ARCH}.config .config
+    elif [ -f configs/kernel-rt-${VERSION}-${ARCH}.config ]; then
+        cp -v configs/kernel-rt-${VERSION}-${ARCH}.config .config
+	# Some sort of RT build?
     else
 	echo "Error: Config file not found"
 	exit 1
