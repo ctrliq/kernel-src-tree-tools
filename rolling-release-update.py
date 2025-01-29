@@ -5,6 +5,29 @@ import subprocess
 import re
 import git
 
+def find_common_tag(old_tags, new_tags):
+    for tag in old_tags:
+        if tag in new_tags:
+            return tag
+    return None
+
+def get_branch_tag_sha_list(repo, branch):
+    print('[rolling release update] Checking out branch: ', branch)
+    repo.git.checkout(branch)
+    results = subprocess.run(['git', 'log', '--decorate', '--oneline'], stderr=subprocess.PIPE, stdout=subprocess.PIPE,
+                            cwd=repo.working_dir)
+    if results.returncode != 0:
+        print(results.stderr)
+        exit(1)
+
+    print('[rolling release update] Gathering all the RESF kernel Tags')
+    tags = []
+    for line in results.stdout.split(b'\n'):
+        if b'tag: resf_kernel' in line:
+            print(line)
+            tags.append(line.split(b' ')[0])
+    return tags
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Rolling release update')
     parser.add_argument('--repo', help='Repository path', required=True)
@@ -12,27 +35,24 @@ if __name__ == '__main__':
     parser.add_argument('--old-rolling-branch', help='Branch name for old rolling release: ex: sig-cloud-8/4.18.0-553.33.1.el8_10', required=True)
     args = parser.parse_args()
 
+    repo = git.Repo(args.repo)
 
     rolling_product = args.old_rolling_branch.split('/')[0]
     print('[rolling release update] Rolling Product: ', rolling_product)
 
-    repo = git.Repo(args.repo)
-    print('[rolling release update] Checking out old Rolling Branch: ', args.old_rolling_branch)
-    repo.git.checkout(args.old_rolling_branch)
-    print('[rolling release update] Finding the last resf_kernel tag the rolling release was based')
-    results = subprocess.run(['git', 'log', '--decorate', '--oneline'], stderr=subprocess.PIPE, stdout=subprocess.PIPE,
-                            cwd=args.repo)
-    if results.returncode != 0:
-        print(results.stderr)
-        exit(1)
-    latest_resf_sha = ''
-    for line in results.stdout.split(b'\n'):
-        if b'tag: resf_kernel' in line:
-            print(line)
-            latest_resf_sha = line.split(b' ')[0]
-            break
-    print('[rolling release update] Last RESF tag sha: ', latest_resf_sha)
+    old_rolling_branch_tags = get_branch_tag_sha_list(repo, args.old_rolling_branch)
+    print('[rolling release update] Old Rolling Branch Tags: ', old_rolling_branch_tags)
 
+    new_base_branch_tags = get_branch_tag_sha_list(repo, args.new_base_branch)
+    print('[rolling release update] New Base Branch Tags: ', new_base_branch_tags)
+
+    latest_resf_sha = find_common_tag(old_rolling_branch_tags, new_base_branch_tags)
+    print('[rolling release update] Latest RESF tag sha: ', latest_resf_sha)
+    print(repo.git.show('--pretty="%H %s"', '-s', latest_resf_sha.decode()))
+
+
+    print('[rolling release update] Checking out old rolling branch: ', args.old_rolling_branch)
+    repo.git.checkout(args.old_rolling_branch)
     print('[rolling release update] Finding the CIQ Kernel and Associated Upstream commits between the last resf tag and HEAD')
     rolling_commit_map = {}
     rollint_commit_map_rev = {}
@@ -46,20 +66,17 @@ if __name__ == '__main__':
             rolling_commit_map[ciq_commit] = upstream_commit
             rollint_commit_map_rev[upstream_commit] = ciq_commit
 
+    print('[rolling release update] Last RESF tag sha: ', latest_resf_sha)
+
     print('{ "CIQ COMMMIT" : "UPSTREAM COMMMIT" }')
     print(json.dumps(rolling_commit_map, indent=2))
 
-    
     print('[rolling release update] Checking out new base branch: ', args.new_base_branch)
     repo.git.checkout(args.new_base_branch)
 
-    print('[rolling release update] Finding the new resf_kernel tag the rolling release is based')
     results = subprocess.run(['git', 'log', '--decorate', '--oneline'], stderr=subprocess.PIPE, stdout=subprocess.PIPE,
-                            cwd=args.repo)
-    if results.returncode != 0:
-        print(results.stderr)
-        exit(1)
-    
+                            cwd=repo.working_dir)
+
     print('[rolling release update] Finding the kernel version for the new rolling release')
     new_rolling_branch_kernel = ''
     for line in results.stdout.split(b'\n'):
