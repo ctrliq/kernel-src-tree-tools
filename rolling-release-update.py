@@ -5,6 +5,9 @@ import subprocess
 import re
 import git
 
+FIPS_PROTECTED_DIRECOTRIES=[b'arch/x86/crypto/', b'cypto/aysmmetric_keys/', b'crypto/', b'drivers/crypto/',
+                            b'drivers/char/random.c', b'include/cyrpto']
+
 def find_common_tag(old_tags, new_tags):
     for tag in old_tags:
         if tag in new_tags:
@@ -28,11 +31,60 @@ def get_branch_tag_sha_list(repo, branch):
             tags.append(line.split(b' ')[0])
     return tags
 
+def check_for_fips_protected_changes(repo, branch, common_tag):
+    print('[rolling release update] Checking for FIPS protected changes')
+    repo.git.checkout(branch)
+    print(f'[rolling release update] Getting SHAS {common_tag.decode()}..HEAD')
+    results = subprocess.run(['git', 'log', '--pretty=%H', f'{common_tag.decode()}..HEAD'], stderr=subprocess.PIPE,
+                             stdout=subprocess.PIPE, cwd=repo.working_dir)
+    if results.returncode != 0:
+        print(results.stderr)
+        exit(1)
+
+    num_commits = len(results.stdout.split(b'\n'))
+    print('[rolling release update] Number of commits to check: ', num_commits)
+    shas_to_check = []
+    commits_checked = 0
+
+    print('[rolling release update] Checkking modifications of shas')
+    for sha in results.stdout.split(b'\n'):
+        commits_checked += 1
+        if commits_checked % (num_commits//10) == 0:
+            print(f'[rolling release update] Checked {commits_checked} of {num_commits} commits')
+        if sha == b'':
+            continue
+        res = subprocess.run(['git', 'show', '--name-only', '--pretty=%H %s',  f'{sha.decode()}'], stderr=subprocess.PIPE, stdout=subprocess.PIPE,
+                                cwd=repo.working_dir)
+        if res.returncode != 0:
+            print(res)
+            print(res.stderr)
+            exit(1)
+
+        sha_hash_and_subject = b''
+        for line in res.stdout.split(b'\n'):
+            if sha_hash_and_subject == b'':
+                sha_hash_and_subject = line
+                continue
+            if line == b'':
+                continue
+
+            for dir in FIPS_PROTECTED_DIRECOTRIES:
+                if line.startswith(dir):
+                    print(f'FIPS protected directory change found in commit {sha}')
+                    print(sha_hash_and_subject)
+                    shas_to_check.append(sha_hash_and_subject.split(b' ')[0])
+            sha_hash_and_subject = b''
+    print(f'[rolling release update] {len(shas_to_check)} of {num_commits} commits have FIPS protected changes')
+
+    return shas_to_check
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Rolling release update')
     parser.add_argument('--repo', help='Repository path', required=True)
     parser.add_argument('--new-base-branch', help='Branch name', required=True)
     parser.add_argument('--old-rolling-branch', help='Branch name for old rolling release: ex: sig-cloud-8/4.18.0-553.33.1.el8_10', required=True)
+    parser.add_argument('--fips-override', help='Override FIPS check abort', action='store_true')
     args = parser.parse_args()
 
     repo = git.Repo(args.repo)
@@ -49,6 +101,17 @@ if __name__ == '__main__':
     latest_resf_sha = find_common_tag(old_rolling_branch_tags, new_base_branch_tags)
     print('[rolling release update] Latest RESF tag sha: ', latest_resf_sha)
     print(repo.git.show('--pretty="%H %s"', '-s', latest_resf_sha.decode()))
+
+    if 'fips' in rolling_product:
+        print('[rolling release update] Checking for FIPS protected changes between the common tag and HEAD')
+        shas_to_check = check_for_fips_protected_changes(repo, args.new_base_branch, latest_resf_sha)
+        if shas_to_check and args.fips_override is False:
+            for sha in shas_to_check:
+                print(repo.git.show(sha.decode()))
+            print('[rolling release update] FIPS protected changes found between the common tag and HEAD')
+            print('[rolling release update] Please Contact the CIQ FIPS / Security team for further instructions')
+            print('[rolling release update] Exiting')
+            exit(1)
 
 
     print('[rolling release update] Checking out old rolling branch: ', args.old_rolling_branch)
@@ -68,8 +131,14 @@ if __name__ == '__main__':
 
     print('[rolling release update] Last RESF tag sha: ', latest_resf_sha)
 
+    print('[rolling release update] Total Commit in old branch: ', len(rolling_commit_map))
     print('{ "CIQ COMMMIT" : "UPSTREAM COMMMIT" }')
-    print(json.dumps(rolling_commit_map, indent=2))
+    if len(rolling_commit_map) > 10:
+        print('Printing first 5 and last 5 commits')
+        print(json.dumps({k: rolling_commit_map[k] for k in list(rolling_commit_map)[:5]}, indent=2))
+        print(json.dumps({k: rolling_commit_map[k] for k in list(rolling_commit_map)[-5:]}, indent=2))
+    else:
+        print(json.dumps(rolling_commit_map, indent=2))
 
     print('[rolling release update] Checking out new base branch: ', args.new_base_branch)
     repo.git.checkout(args.new_base_branch)
@@ -118,8 +187,14 @@ if __name__ == '__main__':
             new_base_commit_map[ciq_commit] = upstream_commit
             new_base_commit_map_rev[upstream_commit] = ciq_commit
 
+    print('[rolling release update] Total Commit in new branch: ', len(new_base_commit_map))
     print('{ "CIQ COMMMIT" : "UPSTREAM COMMMIT" }')
-    print(json.dumps(new_base_commit_map, indent=2))
+    if len(new_base_commit_map) > 10:
+        print('Printing first 5 and last 5 commits')
+        print(json.dumps({k: new_base_commit_map[k] for k in list(new_base_commit_map)[:5]}, indent=2))
+        print(json.dumps({k: new_base_commit_map[k] for k in list(new_base_commit_map)[-5:]}, indent=2))
+    else:
+        print(json.dumps(new_base_commit_map, indent=2))
 
     print('[rolling release update] Checking if any of the commits from the old rolling release are already present in the new base branch')
     commits_to_remove = {}
