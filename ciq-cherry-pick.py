@@ -10,14 +10,14 @@ MERGE_MSG = git.Repo(os.getcwd()).git_dir + '/MERGE_MSG'
 
 if __name__ == '__main__':
     print("CIQ custom cherry picker")
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--sha', help='Taget SHA1 to cherry-pick')
-    parser.add_argument('--ticket', help='Ticket associtated to cherry-pick work')
+    parser.add_argument('--ticket', help='Ticket associated to cherry-pick work')
     parser.add_argument('--ciq-tag', help="Tags for commit message <feature><-optional modifier> <identifier>.\n"
                         "example: cve CVE-2022-45884 - A patch for a CVE Fix.\n"
                         "         cve-bf CVE-1974-0001 - A bug fix for a CVE currently being patched\n"
-                        "         cve-pre CVE-1974-0001 - A pre-condition or depnedency needed for the CVE\n"
-                        "Multiple tags are seperated with a comma. ex: cve CVE-1974-0001, cve CVE-1974-0002\n")
+                        "         cve-pre CVE-1974-0001 - A pre-condition or dependency needed for the CVE\n"
+                        "Multiple tags are separated with a comma. ex: cve CVE-1974-0001, cve CVE-1974-0002\n")
     args = parser.parse_args()
 
     tags = []
