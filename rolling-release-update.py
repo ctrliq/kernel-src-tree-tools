@@ -167,12 +167,19 @@ if __name__ == '__main__':
         exit(1)
     else:
         print(f'Branch {new_rolling_branch_kernel} does not exists creating')
+        results = subprocess.run(['git', 'checkout', '-b', new_rolling_branch_kernel], stderr=subprocess.PIPE,
+                                stdout=subprocess.PIPE, cwd=args.repo)
+    if results.returncode != 0:
+        print(results.stderr)
+        exit(1)
 
-    results = subprocess.run(['git', 'checkout', '-b', new_rolling_branch_kernel], stderr=subprocess.PIPE,
+    print('[rolling release update] Creating new branch for PR: ', f"{os.getlogin()}_{new_rolling_branch_kernel}")
+    results = subprocess.run(['git', 'checkout', '-b', f"{os.getlogin()}_{new_rolling_branch_kernel}"], stderr=subprocess.PIPE,
                             stdout=subprocess.PIPE, cwd=args.repo)
     if results.returncode != 0:
         print(results.stderr)
         exit(1)
+
     
     print('[rolling release update] Crating Map of all new commits from last rolling release fork')
     new_base_commit_map = {}
