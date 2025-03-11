@@ -47,8 +47,8 @@ else
 fi
 
 echo "Setting Local Version for build"
-sed -i_bak "s/CONFIG_LOCALVERSION=\"\"/CONFIG_LOCALVERSION=\"-${BRANCH}\"/g" .config
-grep "CONFIG_LOCALVERSION=" .config    
+sed -i_bak "s/CONFIG_LOCALVERSION=\"\"/CONFIG_LOCALVERSION=\"-${BRANCH}-$(git rev-parse --short HEAD)\"/g" .config
+grep "CONFIG_LOCALVERSION=" .config
 
 echo "Making olddefconfig"
 make olddefconfig
