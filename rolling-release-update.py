@@ -89,7 +89,14 @@ if __name__ == '__main__':
     parser.add_argument('--fips-override', help='Override FIPS check abort', action='store_true')
     parser.add_argument('--verbose-git-show', help='When SHAs are detected for removal do the full git show <sha>',
                         action='store_true')
+    parser.add_argument('--demo', help='DEMO mode, will make a new set of branches with demo_ prepended',
+                        action='store_true')
     args = parser.parse_args()
+
+    if args.demo:
+        print('======================== DEMO MODE ENABLED ==========================')
+        print('[rolling release update] DEMO mode enabled YOU SHOULD NOT COMMIT THIS')
+        print('======================== DEMO MODE ENABLED ==========================')
 
     repo = git.Repo(args.repo)
 
@@ -160,7 +167,11 @@ if __name__ == '__main__':
             if r:
                 new_rolling_branch_kernel = r.group('kernel_ver')
             break
-    new_rolling_branch_kernel = f'{rolling_product}/{new_rolling_branch_kernel.decode()}'
+
+    if args.demo:
+        new_rolling_branch_kernel = f'demo_{rolling_product}/{new_rolling_branch_kernel.decode()}'
+    else:
+        new_rolling_branch_kernel = f'{rolling_product}/{new_rolling_branch_kernel.decode()}'
     print('[rolling release update} New Branch to create ', new_rolling_branch_kernel)
     
     print('[rolling release update] Check if branch Exists: ', new_rolling_branch_kernel)
