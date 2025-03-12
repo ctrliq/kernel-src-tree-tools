@@ -67,7 +67,7 @@ echo "[TIMER]{BUILD}: $(( $END_BUILD - $START_BUILD ))s"
 
 echo "Making Modules"
 START_MODULES=$(date +%s)
-sudo INSTALL_MOD_STRIP=1 make modules_install
+sudo INSTALL_MOD_STRIP=1 make -j$(nproc) modules_install
 if [ $? -ne 0 ]; then
     echo "Error: Modules install failed"
     echo "[TIMER]{MODULES} $(( $(date +%s) - $START_MODULES ))s"
