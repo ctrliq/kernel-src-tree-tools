@@ -83,8 +83,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Rolling release update')
     parser.add_argument('--repo', help='Repository path', required=True)
     parser.add_argument('--new-base-branch', help='Branch name', required=True)
-    parser.add_argument('--old-rolling-branch', help='Branch name for old rolling release: ex: sig-cloud-8/4.18.0-553.33.1.el8_10', required=True)
+    parser.add_argument('--old-rolling-branch',
+                        help='Branch name for old rolling release: ex: sig-cloud-8/4.18.0-553.33.1.el8_10',
+                        required=True)
     parser.add_argument('--fips-override', help='Override FIPS check abort', action='store_true')
+    parser.add_argument('--verbose-git-show', help='When SHAs are detected for removal do the full git show <sha>',
+                        action='store_true')
     args = parser.parse_args()
 
     repo = git.Repo(args.repo)
@@ -207,15 +211,20 @@ if __name__ == '__main__':
     commits_to_remove = {}
     for ciq_commit, upstream_commit in rolling_commit_map.items():
         if upstream_commit in new_base_commit_map_rev:
-            print(f"Commit {ciq_commit} already present in new base branch")
-            print(repo.git.show(ciq_commit))
+            print(f"- Commit {ciq_commit} already present in new base branch: {repo.git.show('--pretty=oneline', '-s', ciq_commit)}")
             commits_to_remove[ciq_commit] = upstream_commit
+        if ciq_commit in new_base_commit_map:
+            print(f"- CIQ Commit {ciq_commit} already present in new base branch: {repo.git.show('--pretty=oneline', '-s', ciq_commit)}")
+            commits_to_remove[ciq_commit] = upstream_commit
+
 
     print('[rolling release update] Removing commits from the new branch')
     for ciq_commit, upstream_commit in commits_to_remove.items():
         del rolling_commit_map[ciq_commit]
-        print("Removing commit: ", ciq_commit)
-        repo.git.show(ciq_commit)
+        if args.verbose_git_show:
+            print(repo.git.show(ciq_commit))
+        else:
+            print(repo.git.show('--pretty=oneline', '-s', ciq_commit))
 
     print('[rolling release update] Applying the remaining commits to the new branch')
     for ciq_commit, upstream_commit in reversed(rolling_commit_map.items()):
