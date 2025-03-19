@@ -3,7 +3,25 @@
 
 pwd
 
-BRANCH=$(git branch | grep \* | cut -d ' ' -f2 | sed -r 's/[{}/]/_/g')
+REAL_BRANCH="$(git branch --show-current)"
+# Enforce branch naming so that we can determine
+# 1. If a kABI check is even necessary
+# 2. Which git tag to checkout in the kernel-dist-git
+# Can do with an if but I always get it wrong
+if ! echo "$REAL_BRANCH" | grep -q -E '((ciqlts[0-9]+_[0-9]+(-rt)?|ciqcbr7_9)$|fips-([0-9]+|legacy-[0-9]+)(-compliant|-certified)?/)'; then
+    echo "Unexpected branch name."
+    echo "Either of the following must be present (part of) in the branch name, enforced for kABI check."
+    echo "- 'ciqcbr7_9'"
+    echo "- 'ciqltsX_Y'"
+    echo "- 'ciqltsX_Y-rt'"
+    echo "- 'fips-legacy-X-compliant/'"
+    echo "- 'fips-legacy-X/'"
+    echo "- 'fips-X/'"
+    echo "- 'fips-X-compliant/'"
+    echo "- 'fips-X-certified/'"
+    exit 1
+fi
+BRANCH=$(echo "$REAL_BRANCH" | sed -r 's/[{}/]/_/g')
 
 START=$(date +%s)
 START_MRPROPER=$(date +%s)
@@ -86,14 +104,58 @@ fi
 END_INSTALL=$(date +%s)
 echo "[TIMER]{INSTALL}: $(( $END_INSTALL - $START_INSTALL ))s"
 
-echo "Checking kABI"
-# ../kernel-dist-git/SOURCES/check-kabi -k ../kernel-dist-git/SOURCES/Module.kabi_x86_64 -s Module.symvers || echo "kABI failed"
-KABI_CHECK=$(../kernel-dist-git/SOURCES/check-kabi -k ../kernel-dist-git/SOURCES/Module.kabi_${ARCH} -s Module.symvers)
-if [ $? -ne 0 ]; then
-    echo "Error: kABI check failed"
-    exit 1
+# "temporary" duct tape
+KERNEL_DIST_GIT_TAG=undecided
+CHECK_KABI=undecided
+# TODO: find status of FIPS and CBR and implement it here
+if echo "$REAL_BRANCH" | grep -q 'ciqlts8_6-rt'; then
+    CHECK_KABI=false
+
+elif echo "$REAL_BRANCH" | grep -q 'ciqlts8_8-rt'; then
+    CHECK_KABI=false
+
+elif echo "$REAL_BRANCH" | grep -q 'ciqlts9_2-rt'; then
+    CHECK_KABI=false
+
+elif echo "$REAL_BRANCH" | grep -q 'ciqlts8_6'; then
+    CHECK_KABI=true
+    KERNEL_DIST_GIT_TAG='imports/r8/kernel-4.18.0-372.32.1.el8_6'
+
+elif echo "$REAL_BRANCH" | grep -q 'ciqlts8_8'; then
+    CHECK_KABI=true
+    KERNEL_DIST_GIT_TAG='imports/r8/kernel-4.18.0-477.27.1.el8_8'
+
+elif echo "$REAL_BRANCH" | grep -q 'ciqlts9_2'; then
+    CHECK_KABI=true
+    KERNEL_DIST_GIT_TAG='imports/r9/kernel-5.14.0-284.30.1.el9_2'
+
+elif echo "$REAL_BRANCH" | grep -q 'ciqlts9_4'; then
+    CHECK_KABI=true
+    KERNEL_DIST_GIT_TAG='imports/r9/kernel-5.14.0-427.42.1.el9_4'
+
+else
+    echo "Warning: Could not determine if kABI check was necessary, defaulting to 'no.'"
+    CHECK_KABI=false
 fi
-echo "kABI check passed"
+
+if [ $CHECK_KABI == 'true' ]; then
+    echo "Checking kABI"
+    if [ ! -d ../kernel-dist-git ]; then
+        echo "Error: kernel-dist-git is missing."
+        echo "RUN: 'git clone https://git.rockylinux.org/staging/rpms/kernel.git $(realpath ../kernel-dist-git)'"
+        echo "RUN: 'git -C $(realpath ../kernel-dist-git) checkout $KERNEL_DIST_GIT_TAG'"
+        exit 1
+    fi
+    # make sure we're on the right branch (the commit author is bad at this and this check exists for him)
+    git -C "$(realpath ../kernel-dist-git)" checkout "$KERNEL_DIST_GIT_TAG"
+    KABI_CHECK=$(../kernel-dist-git/SOURCES/check-kabi -k ../kernel-dist-git/SOURCES/Module.kabi_${ARCH} -s Module.symvers)
+    if [ $? -ne 0 ]; then
+        echo "Error: kABI check failed"
+        exit 1
+    fi
+
+    echo "kABI check passed"
+fi
 
 GRUB_INFO=$(sudo grubby --info=ALL | grep -E "^kernel|^index")
 
