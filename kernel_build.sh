@@ -104,10 +104,8 @@ fi
 END_INSTALL=$(date +%s)
 echo "[TIMER]{INSTALL}: $(( $END_INSTALL - $START_INSTALL ))s"
 
-# "temporary" duct tape
-KERNEL_DIST_GIT_TAG=undecided
-CHECK_KABI=undecided
-# TODO: find status of FIPS and CBR and implement it here
+CHECK_KABI=true
+# We disable kABI checks only on RT kernels up-to 9.4
 if echo "$REAL_BRANCH" | grep -q 'ciqlts8_6-rt'; then
     CHECK_KABI=false
 
@@ -116,45 +114,17 @@ elif echo "$REAL_BRANCH" | grep -q 'ciqlts8_8-rt'; then
 
 elif echo "$REAL_BRANCH" | grep -q 'ciqlts9_2-rt'; then
     CHECK_KABI=false
-
-elif echo "$REAL_BRANCH" | grep -q 'ciqlts8_6'; then
-    CHECK_KABI=true
-    KERNEL_DIST_GIT_TAG='imports/r8/kernel-4.18.0-372.32.1.el8_6'
-
-elif echo "$REAL_BRANCH" | grep -q 'ciqlts8_8'; then
-    CHECK_KABI=true
-    KERNEL_DIST_GIT_TAG='imports/r8/kernel-4.18.0-477.27.1.el8_8'
-
-elif echo "$REAL_BRANCH" | grep -q 'ciqlts9_2'; then
-    CHECK_KABI=true
-    KERNEL_DIST_GIT_TAG='imports/r9/kernel-5.14.0-284.30.1.el9_2'
-
-elif echo "$REAL_BRANCH" | grep -q 'ciqlts9_4'; then
-    CHECK_KABI=true
-    KERNEL_DIST_GIT_TAG='imports/r9/kernel-5.14.0-427.42.1.el9_4'
-
-else
-    echo "Warning: Could not determine if kABI check was necessary, defaulting to 'no.'"
-    CHECK_KABI=false
 fi
 
 if [ $CHECK_KABI == 'true' ]; then
     echo "Checking kABI"
-    if [ ! -d ../kernel-dist-git ]; then
-        echo "Error: kernel-dist-git is missing."
-        echo "RUN: 'git clone https://git.rockylinux.org/staging/rpms/kernel.git $(realpath ../kernel-dist-git)'"
-        echo "RUN: 'git -C $(realpath ../kernel-dist-git) checkout $KERNEL_DIST_GIT_TAG'"
-        exit 1
-    fi
-    # make sure we're on the right branch (the commit author is bad at this and this check exists for him)
-    git -C "$(realpath ../kernel-dist-git)" checkout "$KERNEL_DIST_GIT_TAG"
     KABI_CHECK=$(../kernel-dist-git/SOURCES/check-kabi -k ../kernel-dist-git/SOURCES/Module.kabi_${ARCH} -s Module.symvers)
     if [ $? -ne 0 ]; then
-        echo "Error: kABI check failed"
+        echo -e "Error: kABI check failed for following symbols:\n$KABI_CHECK"
         exit 1
+    else
+        echo "kABI check passed"
     fi
-
-    echo "kABI check passed"
 fi
 
 GRUB_INFO=$(sudo grubby --info=ALL | grep -E "^kernel|^index")
