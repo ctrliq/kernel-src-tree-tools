@@ -8,8 +8,8 @@ if [ -z "$UPSTREAM_REF" ]; then
 fi
 
 git fetch --all
-RES=$(git branch --all | grep ciq-6.12.y-next | wc -l)
-if [ $RES -ne 0 ]; then 
+git show-ref --verify --quiet refs/heads/ciq-6.12.y-next
+if [ $? -eq 0 ]; then 
     echo "cit-6.12.y-next branch already exists, please check status of remote and local branches"
     exit 1
 fi
