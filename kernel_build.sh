@@ -1,6 +1,10 @@
 #!/bin/bash
 #set -x
 
+if [ "$1" == "skipkabi" ]; then
+    echo "kABI check will be skipped"
+fi
+
 pwd
 
 BRANCH=$(git branch | grep \* | cut -d ' ' -f2 | sed -r 's/[{}/]/_/g')
@@ -83,12 +87,17 @@ echo "[TIMER]{INSTALL}: $(( $END_INSTALL - $START_INSTALL ))s"
 
 echo "Checking kABI"
 # ../kernel-dist-git/SOURCES/check-kabi -k ../kernel-dist-git/SOURCES/Module.kabi_x86_64 -s Module.symvers || echo "kABI failed"
-KABI_CHECK=$(../kernel-dist-git/SOURCES/check-kabi -k ../kernel-dist-git/SOURCES/Module.kabi_${ARCH} -s Module.symvers)
-if [ $? -ne 0 ]; then
-    echo "Error: kABI check failed"
-    exit 1
+if [ "$1" == "skipkabi" ];  then
+    echo "kABI check skipped"
+else
+    echo "Checking kABI"
+    KABI_CHECK=$(../kernel-dist-git/SOURCES/check-kabi -k ../kernel-dist-git/SOURCES/Module.kabi_${ARCH} -s Module.symvers)
+    if [ $? -ne 0 ]; then
+        echo "Error: kABI check failed"
+        exit 1
+    fi
+    echo "kABI check passed"
 fi
-echo "kABI check passed"
 
 GRUB_INFO=$(sudo grubby --info=ALL | grep -E "^kernel|^index")
 
