@@ -32,9 +32,6 @@ if [ "x86_64" == "${ARCH}" ] || [ "aarch64" == "${ARCH}" ]; then
 	cp -v configs/kernel-${ARCH}-rhel.config .config
     elif [ -f configs/kernel-${VERSION}-${ARCH}.config ]; then
 	cp -v configs/kernel-${VERSION}-${ARCH}.config .config
-    elif [ -f configs/kernel-rt-${VERSION}-${ARCH}.config ]; then
-        cp -v configs/kernel-rt-${VERSION}-${ARCH}.config .config
-	# Some sort of RT build?
     else
 	echo "Error: Config file not found"
 	exit 1
