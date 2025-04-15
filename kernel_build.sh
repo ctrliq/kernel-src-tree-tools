@@ -30,7 +30,9 @@ ARCH=$(uname -m)
 if [ "x86_64" == "${ARCH}" ] || [ "aarch64" == "${ARCH}" ]; then
     VERSION=$(uname -r | cut -d '-' -f1)
     echo "${ARCH} architecture detected, copying config"
-    if [ -f configs/kernel-${ARCH}.config ]; then
+    if [ -f ciq/configs/kernel-${ARCH}.config ]; then
+	cp -v ciq/configs/kernel-${ARCH}.config .config
+    elif [ -f configs/kernel-${ARCH}.config ]; then
 	cp -v configs/kernel-${ARCH}.config .config
     elif [ -f configs/kernel-${ARCH}-rhel.config ]; then
 	cp -v configs/kernel-${ARCH}-rhel.config .config
