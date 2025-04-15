@@ -5,8 +5,8 @@ import subprocess
 import re
 import git
 
-FIPS_PROTECTED_DIRECOTRIES=[b'arch/x86/crypto/', b'cypto/aysmmetric_keys/', b'crypto/', b'drivers/crypto/',
-                            b'drivers/char/random.c', b'include/cyrpto']
+FIPS_PROTECTED_DIRECTORIES=[b'arch/x86/crypto/', b'cypto/asymmetric_keys/', b'crypto/', b'drivers/crypto/',
+                            b'drivers/char/random.c', b'include/crypto']
 
 def find_common_tag(old_tags, new_tags):
     for tag in old_tags:
@@ -46,7 +46,7 @@ def check_for_fips_protected_changes(repo, branch, common_tag):
     shas_to_check = []
     commits_checked = 0
 
-    print('[rolling release update] Checkking modifications of shas')
+    print('[rolling release update] Checking modifications of shas')
     for sha in results.stdout.split(b'\n'):
         commits_checked += 1
         if commits_checked % (num_commits//10) == 0:
@@ -68,7 +68,7 @@ def check_for_fips_protected_changes(repo, branch, common_tag):
             if line == b'':
                 continue
 
-            for dir in FIPS_PROTECTED_DIRECOTRIES:
+            for dir in FIPS_PROTECTED_DIRECTORIES:
                 if line.startswith(dir):
                     print(f'FIPS protected directory change found in commit {sha}')
                     print(sha_hash_and_subject)
@@ -196,7 +196,7 @@ if __name__ == '__main__':
         exit(1)
 
     
-    print('[rolling release update] Crating Map of all new commits from last rolling release fork')
+    print('[rolling release update] Creating Map of all new commits from last rolling release fork')
     new_base_commit_map = {}
     new_base_commit_map_rev = {}
     new_base_commits = repo.git.log(f'{latest_resf_sha.decode()}..HEAD')
