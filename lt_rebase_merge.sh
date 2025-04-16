@@ -25,7 +25,7 @@ if [ $? -ne 0 ]; then
 fi
 
 git show-ref --verify --quiet refs/heads/$NEXT_BRANCH
-if [ $? -ne 0] ; then
+if [ $? -ne 0 ] ; then
   echo "Branch ${NEXT_BRANCH} does not exist."
   exit 1
 fi
