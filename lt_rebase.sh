@@ -8,16 +8,50 @@ if [ -z "$UPSTREAM_REF" ]; then
 fi
 
 git fetch --all
+git show-ref --verify --quiet refs/remotes/origin/$UPSTREAM_REF
+if [ $? -ne 0 ]; then
+    echo "UPSTREAM_REF $UPSTREAM_REF does not exist, please check status of remote and local branches"
+    exit 1
+fi
+
+git checkout $UPSTREAM_REF
+if [ $? -ne 0 ]; then
+    echo "Failed to checkout $UPSTREAM_REF, please check status of remote and local branches"
+    exit 1
+fi
+
 git show-ref --verify --quiet refs/heads/ciq-6.12.y-next
 if [ $? -eq 0 ]; then 
     echo "ciq-6.12.y-next branch already exists, please check status of remote and local branches"
     exit 1
 fi
 
+git show-ref --verify --quiet refs/heads/{automation_tmp}_ciq-6.12.y-next
+if [ $? -eq 0 ]; then 
+    echo "{automation_tmp}_ciq-6.12.y-next branch already exists, please check status of remote and local branches"
+    exit 1
+fi
+
 git checkout -b ciq-6.12.y-next $UPSTREAM_REF
+if [ $? -ne 0 ]; then
+    echo "Failed to checkout ciq-6.12.y-next, please check status of remote and local branches"
+    exit 1
+fi
 git checkout ciq-6.12.y
+if [ $? -ne 0 ]; then
+    echo "Failed to checkout ciq-6.12.y, please check status of remote and local branches"
+    exit 1
+fi
 git checkout -b {automation_tmp}_ciq-6.12.y-next
+if [ $? -ne 0 ]; then
+    echo "Failed to checkout {automation_tmp}_ciq-6.12.y-next, please check status of remote and local branches"
+    exit 1
+fi
 git rebase ciq-6.12.y-next
+if [ $? -ne 0 ]; then
+    echo "Failed to rebase {automation_tmp}_ciq-6.12.y-next, please check status of remote and local branches"
+    exit 1
+fi
 
 REPO_STATUS=$(git status -s)
 if [ ! -z "$REPO_STATUS" ]; then
