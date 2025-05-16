@@ -63,3 +63,6 @@ if __name__ == '__main__':
 
     with open(MERGE_MSG, "w") as file:
         file.writelines(new_msg)
+
+    if git_res.returncode == 0:
+        subprocess.run(['git', 'commit', '-F', MERGE_MSG])
