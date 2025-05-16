@@ -11,7 +11,7 @@ MERGE_MSG = git.Repo(os.getcwd()).git_dir + '/MERGE_MSG'
 if __name__ == '__main__':
     print("CIQ custom cherry picker")
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument('--sha', help='Taget SHA1 to cherry-pick')
+    parser.add_argument('--sha', help='Target SHA1 to cherry-pick')
     parser.add_argument('--ticket', help='Ticket associated to cherry-pick work')
     parser.add_argument('--ciq-tag', help="Tags for commit message <feature><-optional modifier> <identifier>.\n"
                         "example: cve CVE-2022-45884 - A patch for a CVE Fix.\n"
@@ -19,6 +19,16 @@ if __name__ == '__main__':
                         "         cve-pre CVE-1974-0001 - A pre-condition or dependency needed for the CVE\n"
                         "Multiple tags are separated with a comma. ex: cve CVE-1974-0001, cve CVE-1974-0002\n")
     args = parser.parse_args()
+
+    # Expand the provided SHA1 to the full SHA1 in case it's either abbreviated or an expression
+    git_sha_res = subprocess.run(['git', 'show', '--pretty=%H', '-s', args.sha], stdout=subprocess.PIPE)
+    if git_sha_res.returncode != 0:
+        print(f"[FAILED] git show --pretty=%H -s {args.sha}")
+        print("Subprocess Call:")
+        print(git_sha_res)
+        print("")
+    else:
+        args.sha = git_sha_res.stdout.decode('utf-8').strip()
 
     tags = []
     if args.ciq_tag is not None:
