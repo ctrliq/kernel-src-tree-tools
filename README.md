@@ -13,7 +13,7 @@ Note: We also indent the lines of the commit
 ### Example: CVE-2022-3565 for jira VULN-168
 This is for cherry-picking a commit for `CVE-2024-1234` that is associated to ticket `jira VULN-1234`
 ```
-$ ciq-cherry-pick --ticket "VULN-168" --ciq-tag "cve CVE-2022-3565" 2568a7e0832ee30b0a351016d03062ab4e0e0a3f
+$ ciq-cherry-pick --ticket "VULN-168" --ciq-tag "cve CVE-2022-3565" --sha 2568a7e0832ee30b0a351016d03062ab4e0e0a3f
 ```
 
 This will produce a comment message like:
