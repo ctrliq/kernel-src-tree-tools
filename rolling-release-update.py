@@ -25,7 +25,7 @@ def find_common_tag(old_tags, new_tags):
     return None
 
 
-def get_branch_tag_sha_list(repo, branch):
+def get_branch_tag_sha_list(repo, branch, minor_version=False):
     print("[rolling release update] Checking out branch: ", branch)
     repo.git.checkout(branch)
     results = subprocess.run(
@@ -37,8 +37,17 @@ def get_branch_tag_sha_list(repo, branch):
 
     print("[rolling release update] Gathering all the RESF kernel Tags")
     tags = []
+    last_resf_tag = b""
     for line in results.stdout.split(b"\n"):
         if b"tag: resf_kernel" in line:
+            if DEBUG:
+                print(line)
+            tags.append(line.split(b" ")[0])
+            if last_resf_tag == b"":
+                last_resf_tag = line.split(b" ")[0]
+        if minor_version and b"tag: kernel-" in line:
+            if DEBUG:
+                print(line)
             tags.append(line.split(b" ")[0])
 
     # Print summary instead of all tags
@@ -48,7 +57,7 @@ def get_branch_tag_sha_list(repo, branch):
             for line_tag in tags:
                 print(f"  {line_tag.decode()}")
 
-    return tags
+    return tags, last_resf_tag
 
 
 def check_for_fips_protected_changes(repo, branch, common_tag):
@@ -143,6 +152,12 @@ if __name__ == "__main__":
         "--verbose-git-show", help="When SHAs are detected for removal do the full git show <sha>", action="store_true"
     )
     parser.add_argument(
+        "--new-minor-version",
+        help="Do not stop at the RESF tags, continue down the CENTOS / ROCKY MAIN branch."
+        " This is used for the new minor version releases",
+        action="store_true",
+    )
+    parser.add_argument(
         "--demo", help="DEMO mode, will make a new set of branches with demo_ prepended", action="store_true"
     )
     parser.add_argument("--debug", help="Enable debug output", action="store_true")
@@ -164,42 +179,51 @@ if __name__ == "__main__":
     rolling_product = args.old_rolling_branch.split("/")[0]
     print("[rolling release update] Rolling Product: ", rolling_product)
 
-    old_rolling_branch_tags = get_branch_tag_sha_list(repo, args.old_rolling_branch)
+    if args.new_minor_version:
+        print("[rolling release update] New Minor Version: ", args.new_minor_version)
+
+    old_rolling_branch_tags, old_rolling_resf_tag_sha = get_branch_tag_sha_list(
+        repo, args.old_rolling_branch, args.new_minor_version
+    )
     if DEBUG:
         print("[rolling release update] Old Rolling Branch Tags: ", old_rolling_branch_tags)
 
-    new_base_branch_tags = get_branch_tag_sha_list(repo, args.new_base_branch)
+    new_base_branch_tags, new_base_resf_tag_sha = get_branch_tag_sha_list(
+        repo, args.new_base_branch, args.new_minor_version
+    )
     if DEBUG:
         print("[rolling release update] New Base Branch Tags: ", new_base_branch_tags)
 
-    latest_resf_sha = find_common_tag(old_rolling_branch_tags, new_base_branch_tags)
-    print("[rolling release update] Latest RESF tag sha: ", latest_resf_sha)
-    print(repo.git.show('--pretty="%H %s"', "-s", latest_resf_sha.decode()))
+    common_sha = find_common_tag(old_rolling_branch_tags, new_base_branch_tags)
+    print("[rolling release update] Common tag sha: ", common_sha)
+    print(repo.git.show('--pretty="%H %s"', "-s", common_sha.decode()))
 
-    print("[rolling release update] Checking for FIPS protected changes between the common tag and HEAD")
-    shas_to_check = check_for_fips_protected_changes(repo, args.new_base_branch, latest_resf_sha)
-    if shas_to_check and args.fips_override is False:
-        for sha, dir in shas_to_check.items():
-            print(f"## Commit {sha.decode()}")
-            print("'''")
-            dir_list = []
-            for d in dir:
-                dir_list.append(d.decode())
-            print(repo.git.show(sha.decode(), dir_list))
-            print("'''")
-        print("[rolling release update] FIPS protected changes found between the common tag and HEAD")
-        print("[rolling release update] Please Contact the CIQ FIPS / Security team for further instructions")
-        print("[rolling release update] Exiting")
-        exit(1)
+    if "fips" in rolling_product:
+        print("[rolling release update] Checking for FIPS protected changes between the common tag and HEAD")
+        shas_to_check = check_for_fips_protected_changes(repo, args.new_base_branch, common_sha)
+        if shas_to_check and args.fips_override is False:
+            for sha, dir in shas_to_check.items():
+                print(f"## Commit {sha.decode()}")
+                print("'''")
+                dir_list = []
+                for d in dir:
+                    dir_list.append(d.decode())
+                print(repo.git.show(sha.decode(), dir_list))
+                print("'''")
+            print("[rolling release update] FIPS protected changes found between the common tag and HEAD")
+            print("[rolling release update] Please Contact the CIQ FIPS / Security team for further instructions")
+            print("[rolling release update] Exiting")
+            exit(1)
 
     print("[rolling release update] Checking out old rolling branch: ", args.old_rolling_branch)
     repo.git.checkout(args.old_rolling_branch)
     print(
         "[rolling release update] Finding the CIQ Kernel and Associated Upstream commits between the last resf tag and HEAD"
     )
+    print(f"[rolling release update] Getting SHAS {old_rolling_resf_tag_sha.decode()}..HEAD")
     rolling_commit_map = {}
     rollint_commit_map_rev = {}
-    rolling_commits = repo.git.log(f"{latest_resf_sha.decode()}..HEAD")
+    rolling_commits = repo.git.log(f"{old_rolling_resf_tag_sha.decode()}..HEAD")
     for line in rolling_commits.split("\n"):
         if line.startswith("commit "):
             ciq_commit = line.split("commit ")[1]
@@ -209,7 +233,7 @@ if __name__ == "__main__":
             rolling_commit_map[ciq_commit] = upstream_commit
             rollint_commit_map_rev[upstream_commit] = ciq_commit
 
-    print("[rolling release update] Last RESF tag sha: ", latest_resf_sha)
+    print("[rolling release update] Last RESF tag sha: ", common_sha)
 
     print(f"[rolling release update] Total commits in old branch: {len(rolling_commit_map)}")
     if DEBUG:
@@ -284,7 +308,7 @@ if __name__ == "__main__":
     print("[rolling release update] Creating Map of all new commits from last rolling release fork")
     new_base_commit_map = {}
     new_base_commit_map_rev = {}
-    new_base_commits = repo.git.log(f"{latest_resf_sha.decode()}..HEAD")
+    new_base_commits = repo.git.log(f"{common_sha.decode()}..HEAD")
     for line in new_base_commits.split("\n"):
         if line.startswith("commit "):
             ciq_commit = line.split("commit ")[1]
