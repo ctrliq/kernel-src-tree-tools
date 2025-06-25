@@ -105,6 +105,15 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
+echo "Delete PR branch ${PR_BRANCH} locally and remotely"
+echo "git push origin :${PR_BRANCH}"
+git push origin :"${PR_BRANCH}"
+if [ $? -ne 0 ]; then
+  echo "Failed to delete ${PR_BRANCH} remotely."
+  exit 1
+fi
+
+
 echo "git branch -m $TARGET_BRANCH $PAST_VERSION_BRANCH"
 git branch -m $TARGET_BRANCH $PAST_VERSION_BRANCH
 if [ $? -ne 0 ]; then
