@@ -60,10 +60,23 @@ if ! [[ $NEW_GKH_TAG =~ $NVR_REGEX ]]; then # check if NEW_GKH_TAG matches the r
   exit 1
 fi
 NEW_CIQ_TAG="ciq_kernel-${NEW_GKH_TAG}-1"
-
-
 # merge PR branch into next branch
 set +x
+
+echo "Commands expected to run (This is in the even it fails during the run)"
+echo "git checkout $NEXT_BRANCH"
+echo "git pull origin $NEXT_BRANCH"
+echo "git merge --ff-only $PR_BRANCH"
+echo "git push origin $NEXT_BRANCH"
+echo "git branch -m $TARGET_BRANCH $PAST_VERSION_BRANCH"
+echo "git push origin :$TARGET_BRANCH $PAST_VERSION_BRANCH"
+echo "git push origin -u $PAST_VERSION_BRANCH"
+echo "git branch -m $NEXT_BRANCH $TARGET_BRANCH"
+echo "git push origin :$NEXT_BRANCH $TARGET_BRANCH"
+echo "git push origin -u $TARGET_BRANCH"
+echo "git tag $NEW_CIQ_TAG $TARGET_BRANCH"
+echo "git push origin $NEW_CIQ_TAG"
+
 echo "git checkout $NEXT_BRANCH"
 git checkout $NEXT_BRANCH
 if [ $? -ne 0 ]; then
