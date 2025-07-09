@@ -162,7 +162,7 @@ if __name__ == '__main__':
     for line in results.stdout.split(b'\n'):
         if b'tag: resf_kernel' in line:
             print(line)
-            r = re.match(b'.*(?P<vendor>.*)_kernel-(?P<kernel_ver>[0-9.-]*el[89]_[0-9]*)', line)
+            r = re.match(b'.*(?P<vendor>.*)_kernel-(?P<kernel_ver>[0-9.-]*el[0-9]{1,2}_[0-9]*)', line)
             print(r)
             if r:
                 new_rolling_branch_kernel = r.group('kernel_ver')
