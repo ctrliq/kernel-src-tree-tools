@@ -80,3 +80,41 @@ This is the full script that end with the engineer ready to reboot the VM into t
 
 ### kernel_recompile_kabi.sh
 Will only recompile the kernel and check the KABI.
+
+### kernel_remove.sh
+This script is intended to clean up "development" kernels. By
+"development" kernels, the author means such a kernel that was built
+locally for testing if patch(es) for a CVE or customer request apply
+correctly and test them. Mainly, it means kernels installed using
+`make`, instead of as an RPM package.
+
+The script accepts **only one** `kernel release` (`uname -r`) to
+remove. Like so:
+```bash
+$ ./kernel_remove.sh 4.18.0-ciqlts8_6-83208b00c+
++ requested_kernel_to_remove=4.18.0-ciqlts8_6-83208b00c+
+++ rpm -q kernel-core --qf '%{VERSION}-%{RELEASE}\n'
+++ sort --version-sort
+++ tail -1
++ latest_rpm_kernel=4.18.0-372.32.1.el8_6.86ciq_lts.12.1
+++ uname -r
++ current_kernel=4.18.0-372.32.1.el8_6.86ciq_lts.12.1.x86_64
++ '[' -z 4.18.0-ciqlts8_6-83208b00c+ ']'
++ '[' 4.18.0-ciqlts8_6-83208b00c+ == 4.18.0-372.32.1.el8_6.86ciq_lts.12.1 ']'
+++ uname -m
++ '[' 4.18.0-ciqlts8_6-83208b00c+ == 4.18.0-372.32.1.el8_6.86ciq_lts.12.1.x86_64 ']'
++ '[' 4.18.0-ciqlts8_6-83208b00c+ == 4.18.0-372.32.1.el8_6.86ciq_lts.12.1.x86_64 ']'
++ '[' -d /lib/modules/4.18.0-ciqlts8_6-83208b00c+ ']'
++ sudo rm -fr /lib/modules/4.18.0-ciqlts8_6-83208b00c+
++ '[' -d /boot/dtb-4.18.0-ciqlts8_6-83208b00c+ ']'
++ '[' -f /boot/config-4.18.0-ciqlts8_6-83208b00c+ ']'
++ '[' -f /boot/initramfs-4.18.0-ciqlts8_6-83208b00c+.img ']'
++ sudo rm -f /boot/initramfs-4.18.0-ciqlts8_6-83208b00c+.img
++ '[' -f /boot/symvers-4.18.0-ciqlts8_6-83208b00c+.xz ']'
++ '[' -f /boot/symvers-4.18.0-ciqlts8_6-83208b00c+.gz ']'
++ '[' -f /boot/System.map-4.18.0-ciqlts8_6-83208b00c+ ']'
++ sudo rm -f /boot/System.map-4.18.0-ciqlts8_6-83208b00c+
++ '[' -f /boot/vmlinuz-4.18.0-ciqlts8_6-83208b00c+ ']'
++ sudo rm -f /boot/vmlinuz-4.18.0-ciqlts8_6-83208b00c+
++ sudo grubby --remove-kernel=/boot/vmlinuz-4.18.0-ciqlts8_6-83208b00c+
+```
