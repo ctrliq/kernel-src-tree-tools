@@ -1,9 +1,36 @@
 #!/bin/bash
-#set -x
+set -e
 
-if [ "$1" == "skipkabi" ]; then
-    echo "kABI check will be skipped"
-fi
+SKIP_MRPROPER=0
+SKIP_KABI=0
+
+print_help() {
+cat <<EOF
+Usage: $0 [OPTIONS]
+
+Options:
+  -m, --skip-mrproper   Skip 'make mrproper'
+  -k, --skip-kabi       Skip kABI check
+  -h, --help            Show this help message
+EOF
+}
+
+# Parse arguments
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -m|--skip-mrproper) SKIP_MRPROPER=1 ;;
+        -k|--skip-kabi) SKIP_KABI=1 ;;
+        -h|--help) print_help; exit 0 ;;
+        --) shift; break ;;
+        -*)
+            echo "Unknown option: $1"
+            print_help
+            exit 1
+            ;;
+        *) break ;;
+    esac
+    shift
+done
 
 pwd
 
@@ -11,20 +38,21 @@ BRANCH=$(git branch | grep \* | cut -d ' ' -f2 | sed 's/[{}()]//g; s/\//_/g')
 
 START=$(date +%s)
 START_MRPROPER=$(date +%s)
-if [ -e .config ]; then
+
+if [ "$SKIP_MRPROPER" -ne 1 ]; then
+    echo "Running make mrproper..."
     make mrproper | tee "/tmp/${BRANCH}_make_mrproper.log"
-    if [ $? -ne 0 ]; then
+    if [[ $? -ne 0 ]]; then
         echo "Error: make mrproper failed"
         echo "[TIMER]{MRPROPER} $(( $(date +%s) - $START_MRPROPER ))s"
         exit 1
     fi
 else
-    echo "no .config file found, moving on"
+    echo "Skipping make mrproper"
 fi
 
 END_MRPROPER=$(date +%s)
 echo "[TIMER]{MRPROPER}: $(( $END_MRPROPER - $START_MRPROPER ))s"
-
 
 ARCH=$(uname -m)
 if [ "x86_64" == "${ARCH}" ] || [ "aarch64" == "${ARCH}" ]; then
@@ -87,13 +115,12 @@ fi
 END_INSTALL=$(date +%s)
 echo "[TIMER]{INSTALL}: $(( $END_INSTALL - $START_INSTALL ))s"
 
-echo "Checking kABI"
-# ../kernel-dist-git/SOURCES/check-kabi -k ../kernel-dist-git/SOURCES/Module.kabi_x86_64 -s Module.symvers || echo "kABI failed"
-if [ "$1" == "skipkabi" ];  then
-    echo "kABI check skipped"
+# Run kABI check unless skipped
+if [ "$SKIP_KABI" -eq 1 ]; then
+    echo "Skipping kABI check"
 else
     echo "Checking kABI"
-    KABI_CHECK=$(../kernel-dist-git/SOURCES/check-kabi -k ../kernel-dist-git/SOURCES/Module.kabi_${ARCH} -s Module.symvers)
+    ../kernel-dist-git/SOURCES/check-kabi -k ../kernel-dist-git/SOURCES/Module.kabi_${ARCH} -s Module.symvers
     if [ $? -ne 0 ]; then
         echo "Error: kABI check failed"
         exit 1
