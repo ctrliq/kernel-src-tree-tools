@@ -75,8 +75,16 @@ else
     exit 1
 fi
 
+# The kernel only allows for local versions to be 64 characters long, so we need to truncate the branch name if it is too long
+# Note the Kernel version is prefixed but not accounted for which is usually in the format of "5.14.0", "4.18.0", "6.12.0", etc.
+# This currently is 6 characters, so we're going to buffer in 10 characters in total
+LOCALVERSION="-${BRANCH}-$(git rev-parse --short HEAD)"
+if [ ${#LOCALVERSION} -gt 54 ]; then
+    LOCALVERSION=${LOCALVERSION:0:54}
+fi
+
 echo "Setting Local Version for build"
-sed -i_bak "s/CONFIG_LOCALVERSION=\"\"/CONFIG_LOCALVERSION=\"-${BRANCH}-$(git rev-parse --short HEAD)\"/g" .config
+sed -i_bak "s/CONFIG_LOCALVERSION=\"\"/CONFIG_LOCALVERSION=\"${LOCALVERSION}\"/g" .config
 grep "CONFIG_LOCALVERSION=" .config
 
 echo "Making olddefconfig"
@@ -130,7 +138,7 @@ fi
 
 GRUB_INFO=$(sudo grubby --info=ALL | grep -E "^kernel|^index")
 
-AWK_RES=$(awk -F '=' -v INDEX=0 -v KERNEL="" -v FINAL_INDEX=0 -v BRANCH="${BRANCH}" \
+AWK_RES=$(awk -F '=' -v INDEX=0 -v KERNEL="" -v FINAL_INDEX=0 -v BRANCH="${LOCALVERSION}" \
     '{if ($2 ~/^[0-9]+$/) {INDEX=$2}} {if ($2 ~BRANCH) {KERNEL=$2; FINAL_INDEX=INDEX}} END {print FINAL_INDEX"  "KERNEL}' \
     <<< "${GRUB_INFO}")
 if [ $? -ne 0 ]; then
