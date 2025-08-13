@@ -76,7 +76,14 @@ else
 fi
 
 echo "Setting Local Version for build"
-sed -i_bak "s/CONFIG_LOCALVERSION=\"\"/CONFIG_LOCALVERSION=\"-${BRANCH}-$(git rev-parse --short HEAD)\"/g" .config
+LOCALVERSION="-${BRANCH}-$(git rev-parse --short HEAD)"
+# Shrink the LOCALVERSION to fit in the config
+# Remove to a max of 54 characters (max is 64 but we want a buffer)
+if [ ${#LOCALVERSION} -gt 54 ]; then
+    LOCALVERSION=$(echo "${LOCALVERSION}" | cut -c1-54)
+fi
+
+sed -i_bak "s/CONFIG_LOCALVERSION=\"\"/CONFIG_LOCALVERSION=\"${LOCALVERSION}\"/g" .config
 grep "CONFIG_LOCALVERSION=" .config
 
 echo "Making olddefconfig"
