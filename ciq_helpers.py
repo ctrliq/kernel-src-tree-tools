@@ -112,7 +112,7 @@ def CIQ_cherry_pick_commit_standardization(
     lines: Original SHAS commit message.
     commit: The commit SHA1 that was cherry-picked.
     tags: A list of tags to add to the commit message.
-    jira: The JIRA number to add to the commit message.
+    jira: The JIRA number to add to the commit message, this can be a comma separated list.
     optional_msg: An optional message to add to the commit message.  Traditionally used for `upstream-diff`.
 
     Return: The modified commit message passed in as lines.
@@ -127,7 +127,8 @@ def CIQ_cherry_pick_commit_standardization(
         for tag in tags[::-1]:
             lines.insert(2, f"{tag}\n")
     if jira:
-        lines.insert(2, f"jira {jira}\n")
+        for i in jira.split(","):
+            lines.insert(2, f"jira {i.strip()}\n")
 
     # We Need to indent lines that have email addresss as some tooling in the community
     # will atttempt to read these lines and email everyone on the list.  We do not want
