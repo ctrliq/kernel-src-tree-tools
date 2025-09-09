@@ -12,7 +12,7 @@ if __name__ == '__main__':
     print("CIQ custom cherry picker")
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--sha', help='Target SHA1 to cherry-pick')
-    parser.add_argument('--ticket', help='Ticket associated to cherry-pick work')
+    parser.add_argument('--ticket', help='Ticket associated to cherry-pick work, comma separated list is supported.')
     parser.add_argument('--ciq-tag', help="Tags for commit message <feature><-optional modifier> <identifier>.\n"
                         "example: cve CVE-2022-45884 - A patch for a CVE Fix.\n"
                         "         cve-bf CVE-1974-0001 - A bug fix for a CVE currently being patched\n"
