@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
 
+NO_REBOOT=0
 SKIP_MRPROPER=0
 SKIP_KABI=0
 
@@ -9,6 +10,7 @@ cat <<EOF
 Usage: $0 [OPTIONS]
 
 Options:
+  -n, --no-reboot       Don't reboot after kernel install
   -m, --skip-mrproper   Skip 'make mrproper'
   -k, --skip-kabi       Skip kABI check
   -h, --help            Show this help message
@@ -18,6 +20,7 @@ EOF
 # Parse arguments
 while [ "$#" -gt 0 ]; do
     case "$1" in
+        -n|--no-reboot) NO_REBOOT=1 ;;
         -m|--skip-mrproper) SKIP_MRPROPER=1 ;;
         -k|--skip-kabi) SKIP_KABI=1 ;;
         -h|--help) print_help; exit 0 ;;
@@ -176,7 +179,9 @@ echo "[TIMER]{MODULES}: $(( $END_MODULES - $START_MODULES ))s"
 echo "[TIMER]{INSTALL}: $(( $END_INSTALL - $START_INSTALL ))s"
 echo "[TIMER]{TOTAL} ${DIFF}s"
 
-echo "Rebooting in 10 seconds"
-sleep 10
-sudo reboot
+if [ "$NO_REBOOT" -ne 1 ]; then
+    echo "Rebooting in 10 seconds"
+    sleep 10
+    sudo reboot
+fi
 
