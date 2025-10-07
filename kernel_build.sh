@@ -140,8 +140,8 @@ fi
 
 GRUB_INFO=$(sudo grubby --info=ALL | grep -E "^kernel|^index")
 
-AWK_RES=$(awk -F '=' -v INDEX=0 -v KERNEL="" -v FINAL_INDEX=0 -v BRANCH="${BRANCH}" \
-    '{if ($2 ~/^[0-9]+$/) {INDEX=$2}} {if ($2 ~BRANCH) {KERNEL=$2; FINAL_INDEX=INDEX}} END {print FINAL_INDEX"  "KERNEL}' \
+AWK_RES=$(awk -F '=' -v INDEX=0 -v KERNEL="" -v FINAL_INDEX=0 -v VERSION="${LOCALVERSION}" \
+    '{if ($2 ~/^[0-9]+$/) {INDEX=$2}} {if ($2 ~VERSION) {KERNEL=$2; FINAL_INDEX=INDEX}} END {print FINAL_INDEX"  "KERNEL}' \
     <<< "${GRUB_INFO}")
 if [ $? -ne 0 ]; then
     echo "Error: awk failed"
