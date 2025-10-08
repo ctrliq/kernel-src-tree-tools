@@ -248,10 +248,10 @@ def main():
                 # Build the fixes display text with CVE info
                 fixes_lines = []
                 for fix_hash, display_str in fixes:
-                    fixes_lines.append(display_str)
                     if fix_hash in fix_cves:
-                        short_fix_hash = fix_hash[:13]
-                        fixes_lines.append(f"{short_fix_hash} is associated with {fix_cves[fix_hash]}")
+                        fixes_lines.append(f"{display_str} ({fix_cves[fix_hash]})")
+                    else:
+                        fixes_lines.append(display_str)
                 fixes_text = "\n".join(fixes_lines)
 
                 if args.markdown:
