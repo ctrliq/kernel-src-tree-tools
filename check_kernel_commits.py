@@ -292,12 +292,12 @@ def main():
                                     any_findings = True
                                     if args.markdown:
                                         out_lines.append(
-                                            f"- ❌ PR commit `{pr_commit_desc}` references CVE `{cve_id}` but  \n"
+                                            f"- ❌ PR commit `{pr_commit_desc}` references `{cve_id}` but  \n"
                                             f"  upstream commit `{short_uhash}` is associated with `{found_cve}`\n"
                                         )
                                     else:
                                         prefix = "[CVE-MISMATCH] "
-                                        header = (f"{prefix}PR commit {pr_commit_desc} references CVE {cve_id} but "
+                                        header = (f"{prefix}PR commit {pr_commit_desc} references {cve_id} but "
                                                   f"upstream commit {short_uhash} is associated with {found_cve}")
                                         out_lines.append(
                                             wrap_paragraph(header, width=80, initial_indent='',
@@ -309,12 +309,12 @@ def main():
                             any_findings = True
                             if args.markdown:
                                 out_lines.append(
-                                    f"- ❌ PR commit `{pr_commit_desc}` references CVE `{cve_id}` but  \n"
+                                    f"- ❌ PR commit `{pr_commit_desc}` references `{cve_id}` but  \n"
                                     f"  upstream commit `{short_uhash}` has no CVE assigned\n"
                                 )
                             else:
                                 prefix = "[CVE-NOTFOUND] "
-                                header = (f"{prefix}PR commit {pr_commit_desc} references CVE {cve_id} but "
+                                header = (f"{prefix}PR commit {pr_commit_desc} references {cve_id} but "
                                           f"upstream commit {short_uhash} has no CVE assigned")
                                 out_lines.append(
                                     wrap_paragraph(header, width=80, initial_indent='',
@@ -326,12 +326,12 @@ def main():
                         any_findings = True
                         if args.markdown:
                             out_lines.append(
-                                f"- ⚠️ PR commit `{pr_commit_desc}` references CVE `{cve_id}` but  \n"
+                                f"- ⚠️ PR commit `{pr_commit_desc}` references `{cve_id}` but  \n"
                                 f"  failed to verify: {str(e)}\n"
                             )
                         else:
                             prefix = "[CVE-ERROR] "
-                            header = (f"{prefix}PR commit {pr_commit_desc} references CVE {cve_id} but "
+                            header = (f"{prefix}PR commit {pr_commit_desc} references {cve_id} but "
                                       f"failed to verify: {str(e)}")
                             out_lines.append(
                                 wrap_paragraph(header, width=80, initial_indent='',
