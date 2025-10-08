@@ -46,7 +46,7 @@ def hash_exists_in_mainline(repo, upstream_ref, hash_):
     except RuntimeError:
         return False
 
-def find_fixes_in_mainline(repo, upstream_ref, hash_):
+def find_fixes_in_mainline(repo, pr_branch, upstream_ref, hash_):
     """
     Return unique commits in upstream_ref that have Fixes: <N chars of hash_> in their message, case-insensitive.
     Start from 12 chars and work down to 6, but do not include duplicates if already found at a longer length.
@@ -77,11 +77,23 @@ def find_fixes_in_mainline(repo, upstream_ref, hash_):
             if m:
                 for prefix in hash_prefixes:
                     if m.group(1).lower().startswith(prefix.lower()):
-                        results.append(' '.join(header.split()[1:]))
+                        if not commit_exists_in_branch(repo, pr_branch, full_hash):
+                            results.append(' '.join(header.split()[1:]))
                         break
             else:
                 continue
     return "\n".join(results)
+
+def commit_exists_in_branch(repo, pr_branch, upstream_hash_):
+    """
+    Return True if upstream_hash_ has been backported and it exists in the
+    pr branch
+    """
+    output = run_git(repo, ['log', pr_branch, '--grep', 'commit ' + upstream_hash_])
+    if not output:
+        return False
+
+    return True
 
 def wrap_paragraph(text, width=80, initial_indent='', subsequent_indent=''):
     """Wrap a paragraph of text to the specified width and indentation."""
@@ -153,7 +165,7 @@ def main():
                     )
                     out_lines.append("")  # blank line
                 continue
-            fixes = find_fixes_in_mainline(args.repo, upstream_ref, uhash)
+            fixes = find_fixes_in_mainline(args.repo, args.pr_branch, upstream_ref, uhash)
             if fixes:
                 any_findings = True
                 if args.markdown:
