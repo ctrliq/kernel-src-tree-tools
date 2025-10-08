@@ -228,8 +228,31 @@ def main():
             fixes = find_fixes_in_mainline(args.repo, args.pr_branch, upstream_ref, uhash)
             if fixes:
                 any_findings = True
-                # Build the fixes display text
-                fixes_text = "\n".join([display_str for _, display_str in fixes])
+
+                # Check CVEs for bugfix commits if enabled
+                fix_cves = {}
+                if args.check_cves:
+                    for fix_hash, fix_display in fixes:
+                        try:
+                            success, cve_output = run_cve_search(vulns_repo, args.repo, fix_hash)
+                            if success:
+                                # Parse the CVE from the result
+                                match = re.search(r'(CVE-\d{4}-\d+)\s+is assigned to git id', cve_output)
+                                if match:
+                                    bugfix_cve = match.group(1)
+                                    fix_cves[fix_hash] = bugfix_cve
+                        except Exception:
+                            # Silently ignore errors when checking bugfix CVEs
+                            pass
+
+                # Build the fixes display text with CVE info
+                fixes_lines = []
+                for fix_hash, display_str in fixes:
+                    fixes_lines.append(display_str)
+                    if fix_hash in fix_cves:
+                        short_fix_hash = fix_hash[:13]
+                        fixes_lines.append(f"{short_fix_hash} is associated with {fix_cves[fix_hash]}")
+                fixes_text = "\n".join(fixes_lines)
 
                 if args.markdown:
                     fixes_block = "    " + fixes_text.replace("\n", "\n    ")
@@ -251,33 +274,6 @@ def main():
                     for line in fixes_text.splitlines():
                         out_lines.append('    ' + line)
                     out_lines.append("")  # blank line
-
-                # Check CVEs for bugfix commits if enabled
-                if args.check_cves:
-                    for fix_hash, fix_display in fixes:
-                        try:
-                            success, cve_output = run_cve_search(vulns_repo, args.repo, fix_hash)
-                            if success:
-                                # Parse the CVE from the result
-                                match = re.search(r'(CVE-\d{4}-\d+)\s+is assigned to git id', cve_output)
-                                if match:
-                                    bugfix_cve = match.group(1)
-                                    if args.markdown:
-                                        out_lines.append(
-                                            f"- 🔒 Bugfix commit has CVE `{bugfix_cve}` assigned:  \n"
-                                            f"  {fix_display}\n"
-                                        )
-                                    else:
-                                        prefix = "[BUGFIX-CVE] "
-                                        header = f"{prefix}Bugfix commit has CVE {bugfix_cve} assigned: {fix_display}"
-                                        out_lines.append(
-                                            wrap_paragraph(header, width=80, initial_indent='',
-                                                           subsequent_indent=' ' * len(prefix))
-                                        )
-                                        out_lines.append("")  # blank line
-                        except Exception:
-                            # Silently ignore errors when checking bugfix CVEs
-                            pass
 
             # Check CVE if enabled
             if args.check_cves:
