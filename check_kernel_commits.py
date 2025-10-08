@@ -151,9 +151,28 @@ def main():
     vulns_repo = None
     if args.check_cves:
         vulns_repo = args.vulns_dir
-        if not os.path.exists(vulns_repo):
-            print(f"ERROR: vulns repo not found at {vulns_repo}")
-            sys.exit(1)
+        vulns_repo_url = "https://git.kernel.org/pub/scm/linux/security/vulns.git"
+
+        if os.path.exists(vulns_repo):
+            # Repository exists, update it with git pull
+            try:
+                run_git(vulns_repo, ['pull'])
+            except RuntimeError as e:
+                print(f"WARNING: Failed to update vulns repo: {e}")
+                print("Continuing with existing repository...")
+        else:
+            # Repository doesn't exist, clone it
+            try:
+                result = subprocess.run(['git', 'clone', vulns_repo_url, vulns_repo],
+                                      text=True,
+                                      capture_output=True,
+                                      check=False)
+                if result.returncode != 0:
+                    print(f"ERROR: Failed to clone vulns repo: {result.stderr}")
+                    sys.exit(1)
+            except Exception as e:
+                print(f"ERROR: Failed to clone vulns repo: {e}")
+                sys.exit(1)
 
     # Validate that all required refs exist before continuing
     missing_refs = []
