@@ -278,16 +278,19 @@ def main():
             # Check CVE if enabled
             if args.check_cves:
                 cve_id = extract_cve_from_message(msg)
-                if cve_id:
-                    # Check if the CVE matches the upstream hash
-                    try:
-                        success, cve_output = run_cve_search(vulns_repo, args.repo, uhash)
-                        if success:
-                            # Parse the output to get the CVE from the result
-                            # Expected format: "CVE-2024-35962 is assigned to git id 65acf6e0501ac8880a4f73980d01b5d27648b956"
-                            match = re.search(r'(CVE-\d{4}-\d+)\s+is assigned to git id', cve_output)
-                            if match:
-                                found_cve = match.group(1)
+
+                # Check if the upstream commit has a CVE associated with it
+                try:
+                    success, cve_output = run_cve_search(vulns_repo, args.repo, uhash)
+                    if success:
+                        # Parse the output to get the CVE from the result
+                        # Expected format: "CVE-2024-35962 is assigned to git id 65acf6e0501ac8880a4f73980d01b5d27648b956"
+                        match = re.search(r'(CVE-\d{4}-\d+)\s+is assigned to git id', cve_output)
+                        if match:
+                            found_cve = match.group(1)
+
+                            if cve_id:
+                                # PR commit has a CVE reference - check if it matches
                                 if found_cve != cve_id:
                                     any_findings = True
                                     if args.markdown:
@@ -304,8 +307,27 @@ def main():
                                                            subsequent_indent=' ' * len(prefix))
                                         )
                                         out_lines.append("")  # blank line
-                        else:
-                            # The upstream commit has no CVE assigned, but PR commit claims one
+                            else:
+                                # PR commit doesn't reference a CVE, but upstream has one
+                                any_findings = True
+                                if args.markdown:
+                                    out_lines.append(
+                                        f"- ⚠️ PR commit `{pr_commit_desc}` does not reference a CVE but  \n"
+                                        f"  upstream commit `{short_uhash}` is associated with `{found_cve}`\n"
+                                    )
+                                else:
+                                    prefix = "[CVE-MISSING] "
+                                    header = (f"{prefix}PR commit {pr_commit_desc} does not reference a CVE but "
+                                              f"upstream commit {short_uhash} is associated with {found_cve}")
+                                    out_lines.append(
+                                        wrap_paragraph(header, width=80, initial_indent='',
+                                                       subsequent_indent=' ' * len(prefix))
+                                    )
+                                    out_lines.append("")  # blank line
+                    else:
+                        # The upstream commit has no CVE assigned
+                        if cve_id:
+                            # PR commit claims a CVE but upstream has none
                             any_findings = True
                             if args.markdown:
                                 out_lines.append(
@@ -321,8 +343,9 @@ def main():
                                                    subsequent_indent=' ' * len(prefix))
                                 )
                                 out_lines.append("")  # blank line
-                    except Exception as e:
-                        # Error running cve_search
+                except Exception as e:
+                    # Error running cve_search
+                    if cve_id:
                         any_findings = True
                         if args.markdown:
                             out_lines.append(
