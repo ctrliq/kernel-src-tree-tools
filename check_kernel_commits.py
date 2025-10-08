@@ -51,6 +51,7 @@ def find_fixes_in_mainline(repo, pr_branch, upstream_ref, hash_):
     """
     Return unique commits in upstream_ref that have Fixes: <N chars of hash_> in their message, case-insensitive.
     Start from 12 chars and work down to 6, but do not include duplicates if already found at a longer length.
+    Returns a list of tuples: (full_hash, display_string)
     """
     results = []
     # Get all commits with 'Fixes:' in the message
@@ -58,7 +59,7 @@ def find_fixes_in_mainline(repo, pr_branch, upstream_ref, hash_):
         'log', upstream_ref, '--grep', 'Fixes:', '-i', '--format=%H %h %s (%an)%x0a%B%x00'
     ]).strip()
     if not output:
-        return ""
+        return []
     # Each commit is separated by a NUL character and a newline
     commits = output.split('\x00\x0a')
     # Prepare hash prefixes from 12 down to 6
@@ -79,11 +80,11 @@ def find_fixes_in_mainline(repo, pr_branch, upstream_ref, hash_):
                 for prefix in hash_prefixes:
                     if m.group(1).lower().startswith(prefix.lower()):
                         if not commit_exists_in_branch(repo, pr_branch, full_hash):
-                            results.append(' '.join(header.split()[1:]))
+                            results.append((full_hash, ' '.join(header.split()[1:])))
                         break
             else:
                 continue
-    return "\n".join(results)
+    return results
 
 def commit_exists_in_branch(repo, pr_branch, upstream_hash_):
     """
@@ -227,8 +228,11 @@ def main():
             fixes = find_fixes_in_mainline(args.repo, args.pr_branch, upstream_ref, uhash)
             if fixes:
                 any_findings = True
+                # Build the fixes display text
+                fixes_text = "\n".join([display_str for _, display_str in fixes])
+
                 if args.markdown:
-                    fixes_block = "    " + fixes.replace("\n", "\n    ")
+                    fixes_block = "    " + fixes_text.replace("\n", "\n    ")
                     out_lines.append(
                         f"- ⚠️ PR commit `{pr_commit_desc}` references upstream commit  \n"
                         f"  `{short_uhash}` which has been referenced by a `Fixes:` tag in the upstream  \n"
@@ -244,9 +248,36 @@ def main():
                                        subsequent_indent=' ' * len(prefix))  # spaces for '[FIXES] '
                     )
                     out_lines.append("")  # blank line after 'Fixes tags:'
-                    for line in fixes.splitlines():
+                    for line in fixes_text.splitlines():
                         out_lines.append('    ' + line)
                     out_lines.append("")  # blank line
+
+                # Check CVEs for bugfix commits if enabled
+                if args.check_cves:
+                    for fix_hash, fix_display in fixes:
+                        try:
+                            success, cve_output = run_cve_search(vulns_repo, args.repo, fix_hash)
+                            if success:
+                                # Parse the CVE from the result
+                                match = re.search(r'(CVE-\d{4}-\d+)\s+is assigned to git id', cve_output)
+                                if match:
+                                    bugfix_cve = match.group(1)
+                                    if args.markdown:
+                                        out_lines.append(
+                                            f"- 🔒 Bugfix commit has CVE `{bugfix_cve}` assigned:  \n"
+                                            f"  {fix_display}\n"
+                                        )
+                                    else:
+                                        prefix = "[BUGFIX-CVE] "
+                                        header = f"{prefix}Bugfix commit has CVE {bugfix_cve} assigned: {fix_display}"
+                                        out_lines.append(
+                                            wrap_paragraph(header, width=80, initial_indent='',
+                                                           subsequent_indent=' ' * len(prefix))
+                                        )
+                                        out_lines.append("")  # blank line
+                        except Exception:
+                            # Silently ignore errors when checking bugfix CVEs
+                            pass
 
             # Check CVE if enabled
             if args.check_cves:
