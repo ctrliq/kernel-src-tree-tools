@@ -142,6 +142,7 @@ def main():
     parser.add_argument("--markdown", action='store_true', help="Output in Markdown, suitable for GitHub PR comments")
     parser.add_argument("--upstream-ref", default="origin/kernel-mainline", help="Reference to upstream mainline branch (default: origin/kernel-mainline)")
     parser.add_argument("--check-cves", action='store_true', help="Check that CVE references in commit messages match upstream commit hashes")
+    parser.add_argument("--vulns-dir", default="../vulns", help="Path to the kernel vulnerabilities repo (default: ../vulns)")
     args = parser.parse_args()
 
     upstream_ref = args.upstream_ref
@@ -149,7 +150,7 @@ def main():
     # Set up vulns repo path if CVE checking is enabled
     vulns_repo = None
     if args.check_cves:
-        vulns_repo = '../vulns'
+        vulns_repo = args.vulns_dir
         if not os.path.exists(vulns_repo):
             print(f"ERROR: vulns repo not found at {vulns_repo}")
             sys.exit(1)
