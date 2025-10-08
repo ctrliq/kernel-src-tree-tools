@@ -5,6 +5,7 @@ import subprocess
 import re
 import sys
 import textwrap
+import os
 
 def run_git(repo, args):
     """Run a git command in the given repository and return its output as a string."""
@@ -104,6 +105,35 @@ def wrap_paragraph(text, width=80, initial_indent='', subsequent_indent=''):
                                    break_on_hyphens=False)
     return wrapper.fill(text)
 
+def extract_cve_from_message(msg):
+    """Extract CVE reference from commit message. Returns CVE ID or None.
+    Only matches 'cve CVE-2025-12345', ignores 'cve-bf' and 'cve-pre' variants."""
+    match = re.search(r'\bcve\s+(CVE-\d{4}-\d+)', msg, re.IGNORECASE)
+    if match:
+        return match.group(1).upper()
+    return None
+
+def run_cve_search(vulns_repo, kernel_repo, query):
+    """
+    Run the cve_search script from the vulns repo.
+    Returns (success, output_message).
+    """
+    cve_search_path = os.path.join(vulns_repo, 'scripts', 'cve_search')
+    if not os.path.exists(cve_search_path):
+        raise RuntimeError(f"cve_search script not found at {cve_search_path}")
+
+    env = os.environ.copy()
+    env['CVEKERNELTREE'] = kernel_repo
+
+    result = subprocess.run([cve_search_path, query],
+                          text=True,
+                          capture_output=True,
+                          check=False,
+                          env=env)
+
+    # cve_search outputs results to stdout
+    return result.returncode == 0, result.stdout.strip()
+
 def main():
     parser = argparse.ArgumentParser(description="Check upstream references and Fixes: tags in PR branch commits.")
     parser.add_argument("--repo", help="Path to the git repo", required=True)
@@ -111,9 +141,18 @@ def main():
     parser.add_argument("--base_branch", help="Name of the base branch", required=True)
     parser.add_argument("--markdown", action='store_true', help="Output in Markdown, suitable for GitHub PR comments")
     parser.add_argument("--upstream-ref", default="origin/kernel-mainline", help="Reference to upstream mainline branch (default: origin/kernel-mainline)")
+    parser.add_argument("--check-cves", action='store_true', help="Check that CVE references in commit messages match upstream commit hashes")
     args = parser.parse_args()
 
     upstream_ref = args.upstream_ref
+
+    # Set up vulns repo path if CVE checking is enabled
+    vulns_repo = None
+    if args.check_cves:
+        vulns_repo = '../vulns'
+        if not os.path.exists(vulns_repo):
+            print(f"ERROR: vulns repo not found at {vulns_repo}")
+            sys.exit(1)
 
     # Validate that all required refs exist before continuing
     missing_refs = []
@@ -188,6 +227,70 @@ def main():
                     for line in fixes.splitlines():
                         out_lines.append('    ' + line)
                     out_lines.append("")  # blank line
+
+            # Check CVE if enabled
+            if args.check_cves:
+                cve_id = extract_cve_from_message(msg)
+                if cve_id:
+                    # Check if the CVE matches the upstream hash
+                    try:
+                        success, cve_output = run_cve_search(vulns_repo, args.repo, uhash)
+                        if success:
+                            # Parse the output to get the CVE from the result
+                            # Expected format: "CVE-2024-35962 is assigned to git id 65acf6e0501ac8880a4f73980d01b5d27648b956"
+                            match = re.search(r'(CVE-\d{4}-\d+)\s+is assigned to git id', cve_output)
+                            if match:
+                                found_cve = match.group(1)
+                                if found_cve != cve_id:
+                                    any_findings = True
+                                    if args.markdown:
+                                        out_lines.append(
+                                            f"- ❌ PR commit `{pr_commit_desc}` references CVE `{cve_id}` but  \n"
+                                            f"  upstream commit `{short_uhash}` is associated with `{found_cve}`\n"
+                                        )
+                                    else:
+                                        prefix = "[CVE-MISMATCH] "
+                                        header = (f"{prefix}PR commit {pr_commit_desc} references CVE {cve_id} but "
+                                                  f"upstream commit {short_uhash} is associated with {found_cve}")
+                                        out_lines.append(
+                                            wrap_paragraph(header, width=80, initial_indent='',
+                                                           subsequent_indent=' ' * len(prefix))
+                                        )
+                                        out_lines.append("")  # blank line
+                        else:
+                            # The upstream commit has no CVE assigned, but PR commit claims one
+                            any_findings = True
+                            if args.markdown:
+                                out_lines.append(
+                                    f"- ❌ PR commit `{pr_commit_desc}` references CVE `{cve_id}` but  \n"
+                                    f"  upstream commit `{short_uhash}` has no CVE assigned\n"
+                                )
+                            else:
+                                prefix = "[CVE-NOTFOUND] "
+                                header = (f"{prefix}PR commit {pr_commit_desc} references CVE {cve_id} but "
+                                          f"upstream commit {short_uhash} has no CVE assigned")
+                                out_lines.append(
+                                    wrap_paragraph(header, width=80, initial_indent='',
+                                                   subsequent_indent=' ' * len(prefix))
+                                )
+                                out_lines.append("")  # blank line
+                    except Exception as e:
+                        # Error running cve_search
+                        any_findings = True
+                        if args.markdown:
+                            out_lines.append(
+                                f"- ⚠️ PR commit `{pr_commit_desc}` references CVE `{cve_id}` but  \n"
+                                f"  failed to verify: {str(e)}\n"
+                            )
+                        else:
+                            prefix = "[CVE-ERROR] "
+                            header = (f"{prefix}PR commit {pr_commit_desc} references CVE {cve_id} but "
+                                      f"failed to verify: {str(e)}")
+                            out_lines.append(
+                                wrap_paragraph(header, width=80, initial_indent='',
+                                               subsequent_indent=' ' * len(prefix))
+                            )
+                            out_lines.append("")  # blank line
 
     if any_findings:
         if args.markdown:
