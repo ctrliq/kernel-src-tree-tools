@@ -109,7 +109,7 @@ def wrap_paragraph(text, width=80, initial_indent='', subsequent_indent=''):
 def extract_cve_from_message(msg):
     """Extract CVE reference from commit message. Returns CVE ID or None.
     Only matches 'cve CVE-2025-12345', ignores 'cve-bf' and 'cve-pre' variants."""
-    match = re.search(r'\bcve\s+(CVE-\d{4}-\d+)', msg, re.IGNORECASE)
+    match = re.search(r'(?<!\S)cve\s+(CVE-\d{4}-\d+)', msg, re.IGNORECASE)
     if match:
         return match.group(1).upper()
     return None
