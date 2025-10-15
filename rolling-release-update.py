@@ -5,8 +5,10 @@ import subprocess
 import re
 import git
 
-FIPS_PROTECTED_DIRECTORIES=[b'arch/x86/crypto/', b'cypto/asymmetric_keys/', b'crypto/', b'drivers/crypto/',
+FIPS_PROTECTED_DIRECTORIES=[b'arch/x86/crypto/', b'crypto/asymmetric_keys/', b'crypto/', b'drivers/crypto/',
                             b'drivers/char/random.c', b'include/crypto']
+
+DEBUG = False
 
 def find_common_tag(old_tags, new_tags):
     for tag in old_tags:
@@ -43,13 +45,17 @@ def check_for_fips_protected_changes(repo, branch, common_tag):
 
     num_commits = len(results.stdout.split(b'\n'))
     print('[rolling release update] Number of commits to check: ', num_commits)
-    shas_to_check = []
+    shas_to_check = {}
     commits_checked = 0
 
+    progress_interval = max(1, num_commits//10)
+
     print('[rolling release update] Checking modifications of shas')
+    if DEBUG:
+        print(results.stdout.split(b'\n'))
     for sha in results.stdout.split(b'\n'):
         commits_checked += 1
-        if commits_checked % (num_commits//10) == 0:
+        if commits_checked % progress_interval == 0:
             print(f'[rolling release update] Checked {commits_checked} of {num_commits} commits')
         if sha == b'':
             continue
@@ -61,19 +67,38 @@ def check_for_fips_protected_changes(repo, branch, common_tag):
             exit(1)
 
         sha_hash_and_subject = b''
+        touched_fips_files = set()
+        is_rebuild = False
+
         for line in res.stdout.split(b'\n'):
             if sha_hash_and_subject == b'':
                 sha_hash_and_subject = line
+                if b'Rebuild rocky' in line:
+                    is_rebuild = True
                 continue
             if line == b'':
                 continue
 
+            add_to_check = False
+
             for dir in FIPS_PROTECTED_DIRECTORIES:
                 if line.startswith(dir):
-                    print(f'FIPS protected directory change found in commit {sha}')
-                    print(sha_hash_and_subject)
-                    shas_to_check.append(sha_hash_and_subject.split(b' ')[0])
-            sha_hash_and_subject = b''
+                    if DEBUG:
+                        print(f'FIPS protected directory {dir} change found in commit {sha}')
+                        print(sha_hash_and_subject)
+                    add_to_check = True
+                    if dir not in touched_fips_files:
+                        touched_fips_files.add(dir)
+
+            if add_to_check:
+                shas_to_check[sha_hash_and_subject.split(b' ')[0]] = touched_fips_files
+
+        if touched_fips_files:
+            print(f'[rolling release update] Checked commit {sha} touched {len(touched_fips_files)} FIPS protected files')
+            for f in touched_fips_files:
+                print(f'  - {f}')
+        sha_hash_and_subject = b''
+
     print(f'[rolling release update] {len(shas_to_check)} of {num_commits} commits have FIPS protected changes')
 
     return shas_to_check
@@ -91,12 +116,19 @@ if __name__ == '__main__':
                         action='store_true')
     parser.add_argument('--demo', help='DEMO mode, will make a new set of branches with demo_ prepended',
                         action='store_true')
+    parser.add_argument('--debug', help='Enable debug output', action='store_true')
     args = parser.parse_args()
 
     if args.demo:
         print('======================== DEMO MODE ENABLED ==========================')
         print('[rolling release update] DEMO mode enabled YOU SHOULD NOT COMMIT THIS')
         print('======================== DEMO MODE ENABLED ==========================')
+
+    if args.debug:
+        DEBUG = True
+        print('======================== DEBUG MODE ENABLED ==========================')
+        print('[rolling release update] Debug mode enabled')
+        print('======================== DEBUG MODE ENABLED ==========================')
 
     repo = git.Repo(args.repo)
 
@@ -117,8 +149,14 @@ if __name__ == '__main__':
         print('[rolling release update] Checking for FIPS protected changes between the common tag and HEAD')
         shas_to_check = check_for_fips_protected_changes(repo, args.new_base_branch, latest_resf_sha)
         if shas_to_check and args.fips_override is False:
-            for sha in shas_to_check:
-                print(repo.git.show(sha.decode()))
+            for sha,dir in shas_to_check.items():
+                print(f"## Commit {sha.decode()}")
+                print('\'\'\'')
+                dir_list = []
+                for d in dir:
+                    dir_list.append(d.decode())
+                print(repo.git.show(sha.decode(), dir_list))
+                print('\'\'\'')
             print('[rolling release update] FIPS protected changes found between the common tag and HEAD')
             print('[rolling release update] Please Contact the CIQ FIPS / Security team for further instructions')
             print('[rolling release update] Exiting')
