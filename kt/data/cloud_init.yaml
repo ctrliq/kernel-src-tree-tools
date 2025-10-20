@@ -1,0 +1,35 @@
+#cloud-config
+users:
+  - name: USER_PLACEHOLDER
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - SSH_KEY_PLACEHOLDER
+chpasswd:
+  expire: false
+  list:
+    - USER_PLACEHOLDER:test
+
+ssh_pwauth: true
+
+# Ensure the system does not update on boot.
+package_upgrade: False
+
+mounts:
+  - ["mount_tag_mock_scratch", "SHARED_DIR_PLACEHOLDER", "virtiofs", "rw,relatime,context=unconfined_u:object_r:mock_var_lib_t:s0"]
+  - ["SHARED_DIR_PLACEHOLDER", "/var/lib/mock", "bind", "defaults,bind"]
+
+# Change working directory after boot
+# Setting up homedir does not work without tricks, because
+# the actual working directory is mounted after
+# TODO this does not work if the vm is already running...
+write_files:
+  - path: /etc/profile.d/change_dir.sh
+    content: |
+      cd WORKING_DIR_PLACEHOLDER
+    permissions: '0644'
+
+# if homedir already exists, cloud-init does nothing about it
+# and then root is the owner
+# workaround to change the owner to user
+runcmd:
+  - [chown, USER_PLACEHOLDER:USER_PLACEHOLDER, HOMEDIR_PLACEHOLDER]

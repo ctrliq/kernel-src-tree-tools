@@ -6,3 +6,13 @@ class Constants:
     SRC_TREE_ROOT = "src_tree_root"
     COMMON_REPOS = "common_repos"
     KERNELS = "kernels"
+
+    BASE_URL = "https://download.rockylinux.org/pub/rocky"
+    QCOW2_TRAIL = "GenericCloud-Base.latest.x86_64.qcow2"
+    DEFAULT_VM_BASE = "Rocky"
+
+    CLOUD_INIT = "cloud_init.yaml"
+
+    VM_DEPS_INSTALL_WAIT_SECONDS = 300
+    VM_STARTUP_WAIT_SECONDS = 60
+    VM_REBOOT_WAIT_SECONDS = 120

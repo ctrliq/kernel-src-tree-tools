@@ -9,6 +9,9 @@ dependencies = [
 	"gitpython",
 	"click",
 	"pathlib3x",
+	"python3-wget",
+	"oyaml",
+	"pexpect",
 ]
 
 [project.optional-dependencies]
