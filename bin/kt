@@ -4,6 +4,8 @@ import logging
 
 import click
 
+from kt.commands.list_kernels.command import list_kernels
+
 epilog = """
 Base of all tooling used for kernel development.
 
@@ -19,6 +21,7 @@ def cli():
 def main():
     logging.basicConfig(format="%(levelname)s:%(message)s", level=logging.INFO)
 
+    cli.add_command(list_kernels)
     cli()
 
 

@@ -100,3 +100,48 @@ if the base_path is ~/ciq.
 
 The KernelInfo dataclass will be used later when we set up each kernel working
 environment.
+
+## Commands
+
+Make sure kt is reachable from anywhere by adding it's location to PATH.
+Example
+```
+export PATH=$HOME/ciq/kernel-src-tree-tools/bin:$PATH
+```
+If you are unsure how to use kt, just run it with --help.
+Example:
+```
+$ kt --help
+```
+
+Run --help for subcommands as well.
+
+Autocompletion works relatively well. Make sure it's enabled for your shell.
+Check the official doc for [click](https://click.palletsprojects.com/en/stable/shell-completion/#enabling-completion)
+Example for zsh:
+```
+eval "$(_KT_COMPLETE=zsh_source kt)"
+```
+
+A command implementation is under ```kt/commands/<command>``` folder.
+To keep things cleaner, the actual logic is done in impl.py,
+while command.py is used for the click interface, like argument and helper logic.
+
+### kt list-kernels
+It shows the kernels we currently maintain. The data is taken from
+KernelsInfo object which represents the kernels.yaml file in kt/data.
+
+Example:
+
+```
+$ kt list-kernels
+cbr-7.9
+fips-8.10
+fips-8.6
+fips-9.2
+fipslegacy-8.6
+lts-8.6
+lts-8.8
+lts-9.2
+lts-9.4
+```
