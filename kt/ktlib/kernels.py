@@ -5,22 +5,11 @@ import yaml
 from pathlib3x import Path
 
 from kt.ktlib.config import Config
+from kt.ktlib.repo import RepoInfo
 from kt.ktlib.util import Constants
 
 # TODO move this to a separate repo
 KERNEL_INFO_YAML_PATH = Path(__file__).parent.parent.joinpath("data/kernels.yaml")
-
-
-@dataclass
-class RepoInfo:
-    """
-    Dataclass that represents a local clone of a git repository.
-    folder: absolute path to the local clone
-    url: remote origin
-    """
-
-    folder: Path
-    url: str
 
 
 @dataclass

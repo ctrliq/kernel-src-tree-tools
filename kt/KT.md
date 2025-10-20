@@ -145,3 +145,30 @@ lts-8.8
 lts-9.2
 lts-9.4
 ```
+
+### kt setup
+
+```
+$ kt setup --help
+```
+
+It prepares the working directory for later commands:
+
+It clones the common_repos from kernels.yaml file in the config.base_path
+directory.
+If config.base_path = ~/ciq, these will be created:
+
+~/ciq/kernel-src-tree
+
+~/ciq/dist-git-tree-fips
+
+~/ciq/dist-git-tree-cbr
+
+~/ciq/dit-git-tree-lts
+
+~/ciq/kernel-src-tree-tools
+
+~/ciq/kernel-tools
+
+If there's a repo that needs to be cloned relevant for any future command,
+this is when it should be cloned.
