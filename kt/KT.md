@@ -46,3 +46,57 @@ Example content of the config file:
     "ssh_key": "~/.ssh/id_ed25519_generic.pub",
 }
 ```
+
+kt/ktlib/kernels.py is the python representation of the kernels.yaml
+in kt/data folder. This should be the only source of truth for the kernels
+we currently maintain. Ideally, this should be in its own repo, but to keep
+things simple, it is part of the kt tool for the time being.
+
+
+The information we store for each kernel is:
+- the kernel source tree (at the moment is the same for all)
+- the corresponding branch in the kernel source tree
+- the rocky staging rpm repo ( it can be lts, fips or cbr)
+- the corresponding branch in the rocky staging rpm repo as we support
+multiple lts and fips kernels
+
+For example
+```
+kernels:
+  fips-9.2:
+    src_tree_root: kernel-src-tree
+    src_tree_branch: fips-9-compliant/5.14.0-284.30.1
+    dist_git_root: dist-git-tree-fips
+    dist_git_branch: el92-fips-compliant-9
+```
+
+src_tree_root and dist_git_root are references to:
+
+```
+common_repos:
+    dist-git-tree-fips: git@gitlab.com:ctrl-iq-public/fips/src/kernel.git
+    kernel-src-tree: https://github.com/ctrliq/kernel-src-tree.git
+```
+
+NOTE:
+Lts kernel and cbr reference `dist-git-tree-lts` and `dist-git-tree-cbr` that
+are taken from a local config file in `<config.base_dir>/.private_repos.yaml`
+
+A python dataclass KernelInfo that matches every kernel configuration is
+introduced in kt/ktlib/kernels.py. The dataclass contains the absolute
+path to the local clone of the repos, to make future work easier. And we
+keep track of all kernels in KernelsInfo.
+
+For example, based on the default configuration, the KernelInfo object for the above kernel
+will contain the following:
+```
+- name: fips-9.2
+- src_tree_root: RepoInfo(~/ciq/kernel-src-tree, https://github.com/ctrliq/kernel-src-tree.git)
+- src_tree_branch: fips-9-compliant/5.14.0-284.30.1
+- dist_git_root: RepoInfo(~/ciq/dist-git-tree-fips, git@gitlab.com:ctrl-iq-public/fips/src/kernel.git)
+- dist_git_branch: el92-fips-compliant-9
+```
+if the base_path is ~/ciq.
+
+The KernelInfo dataclass will be used later when we set up each kernel working
+environment.

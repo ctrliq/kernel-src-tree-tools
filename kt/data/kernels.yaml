@@ -1,0 +1,40 @@
+common_repos:
+  dist-git-tree-fips: git@gitlab.com:ctrl-iq-public/fips/src/kernel.git
+  kernel-src-tree: https://github.com/ctrliq/kernel-src-tree.git
+
+kernels:
+  cbr-7.9:
+    src_tree_root: kernel-src-tree
+    src_tree_branch: ciqcbr7_9
+    dist_git_root: dist-git-tree-cbr
+    dist_git_branch: cbr79-7
+
+  lts-8.6:
+    src_tree_root: kernel-src-tree
+    src_tree_branch: ciqlts8_6
+    dist_git_root: dist-git-tree-lts
+    dist_git_branch: lts86-8
+
+  lts-9.2:
+    src_tree_root: kernel-src-tree
+    src_tree_branch: ciqlts9_2
+    dist_git_root: dist-git-tree-lts
+    dist_git_branch: lts92-9
+
+  lts-9.4:
+    src_tree_root: kernel-src-tree
+    src_tree_branch: ciqlts9_4
+    dist_git_root: dist-git-tree-lts
+    dist_git_branch: lts94-9
+
+  fipslegacy-8.6:
+    src_tree_root: kernel-src-tree
+    src_tree_branch: fips-legacy-8-compliant/4.18.0-425.13.1
+    dist_git_root: dist-git-tree-fips
+    dist_git_branch: fips-compliant8
+
+  fips-9.2:
+    src_tree_root: kernel-src-tree
+    src_tree_branch: fips-9-compliant/5.14.0-284.30.1
+    dist_git_root: dist-git-tree-fips
+    dist_git_branch: el92-fips-compliant-9
