@@ -4,6 +4,7 @@ import logging
 
 import click
 
+from kt.commands.checkout.command import checkout
 from kt.commands.list_kernels.command import list_kernels
 from kt.commands.setup.command import setup
 
@@ -24,6 +25,7 @@ def main():
 
     cli.add_command(list_kernels)
     cli.add_command(setup)
+    cli.add_command(checkout)
     cli()
 
 
