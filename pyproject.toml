@@ -8,12 +8,14 @@ version = "0.0.1"
 dependencies = [
 	"gitpython",
 	"click",
+	"pathlib3x",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pre-commit",
     "ruff",
+	"pytest",
 	]
 
 [tool.ruff]
