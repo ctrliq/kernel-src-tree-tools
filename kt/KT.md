@@ -172,3 +172,58 @@ If config.base_path = ~/ciq, these will be created:
 
 If there's a repo that needs to be cloned relevant for any future command,
 this is when it should be cloned.
+
+### kt checkout
+Prepares the working directory for a kernel.
+It uses the KernelInfo dataclass created based on the kernels.yaml file.
+
+The working directory location is based on configuration:
+`<config.kernels_dir>/<kernel>/`
+
+2 git worktrees are created for a kernel:
+
+- kernel-dist-git
+
+- kernel-src-tree
+
+They will point out to their root sources. Check kt setup for more info.
+They should be located in <config.base_path>.
+The worktrees reference the remote <branch> from kernels.yaml.
+The local branch is `{<user>}/<branch>`.
+
+If `--change-dir` or `-c` option is used, it will also go to the working
+directory of the kernel.
+
+If `--cleanup` option is used, it will delete the worktree and the local branch
+before creating it from scratch again.
+
+#### Example:
+```
+$ kt checkout lts9_4
+```
+
+For this configuration
+```
+{
+    "base_path": "~/ciq",
+    "kernels_dir": "~/ciq/kernels",
+    "images_source_dir": "~/ciq/default_test_images",
+    "images_dir": "~/ciq/tmp/virt-images",
+    "ssh_key": "~/.ssh/id_ed25519_generic.pub",
+}
+```
+
+This is the working directory for this kernel:
+`~/ciq/kernels/lts9_4`.
+
+2 git worktrees are created:
+
+1. kernel-dist-git
+
+    This representes branch `{<user>}/lts9_4:origin/lts9_4`.
+    The source repo is ~/ciq/dist-git-tree-lts
+
+2. kernel-src-tree
+
+    This representes branch `{<user>}/ciqlts9_4:origin/ciqlts9_4`
+    The source repo is ~/ciq/kernel-src-tree

@@ -1,0 +1,181 @@
+import logging
+import os
+from dataclasses import dataclass
+
+from git import GitCommandError, Repo
+from pathlib3x import Path
+
+from kt.ktlib.config import Config
+from kt.ktlib.kernels import KernelInfo
+from kt.ktlib.util import Constants
+
+
+@dataclass
+class RepoWorktree:
+    source_root: Repo
+    folder: Path
+    remote: str
+    remote_branch: str
+    local_branch: str
+
+    @classmethod
+    def load_from_filepath(cls, folder: Path):
+        if not folder.exists():
+            raise RuntimeError(f"{folder} does not exist")
+
+        # check if folder is a git repo
+        repo = Repo(folder)
+
+        source_root = Path(repo.git.rev_parse("--path-format=absolute", "--git-common-dir")).parent
+        remote = repo.remotes.origin
+
+        remote_branch = repo.active_branch.tracking_branch()
+
+        local_branch = repo.active_branch.name
+
+        return cls(
+            source_root=source_root,
+            folder=folder,
+            remote=remote,
+            remote_branch=remote_branch,
+            local_branch=local_branch,
+        )
+
+    def setup(self):
+        """
+        First run: It will create the worktree
+        Second run: It will update the worktree
+        """
+
+        try:
+            remote_ref = f"{self.remote}/{self.remote_branch}"
+            self.source_root.git.worktree(
+                "add",
+                "--track",
+                "-b",
+                self.local_branch,
+                self.folder,
+                remote_ref,
+            )
+
+        except GitCommandError as e:
+            if "already exists" in e.stderr:
+                self.update()
+            else:
+                # Make sure the worktree is properly cleaned up
+                self.cleanup()
+                raise e
+
+    def update(self):
+        """
+        It will make sure the worktree is up-to-date with remote.
+        It assumes the worktree is already created and initialized.
+        """
+        logging.info("update")
+        repo = Repo(self.folder)
+
+        repo.remotes.origin.pull(rebase=True)
+
+    def cleanup(self):
+        # remove worktree, only if it exists
+        try:
+            self.source_root.git.worktree("remove", self.folder, "-f")
+        except GitCommandError as e:
+            if f"'{self.folder}' is not a working tree" not in e.stderr:
+                raise e
+
+        # remove local branch, only if it exists
+        try:
+            self.source_root.delete_head(self.local_branch, force=True)
+        except GitCommandError as e:
+            if f"branch '{self.local_branch}' not found" not in e.stderr:
+                raise e
+
+    def push(self, force: bool = False):
+        repo = Repo(self.folder)
+        origin = repo.remote(name=self.remote)
+        args = ["--set-upstream", origin.name, self.local_branch]
+        if force:
+            args.append("--force-with-lease")
+
+        repo.git.push(*args)
+
+
+@dataclass
+class KernelWorkspace:
+    folder: Path
+    dist_worktree: RepoWorktree
+    src_worktree: RepoWorktree
+
+    @classmethod
+    def load_from_filepath(cls, folder: Path):
+        if not folder.exists():
+            raise RuntimeError(f"{folder} does not exists")
+
+        ## Get the dist-git-tree path
+        dist_worktree_path = folder / Constants.DIST_TREE
+        dist_worktree = RepoWorktree.load_from_filepath(folder=dist_worktree_path)
+
+        src_worktree_path = folder / Constants.SRC_TREE
+        src_worktree = RepoWorktree.load_from_filepath(folder=src_worktree_path)
+
+        return cls(
+            folder=folder,
+            dist_worktree=dist_worktree,
+            src_worktree=src_worktree,
+        )
+
+    @classmethod
+    def load(cls, name: str, config: Config, kernel_info: KernelInfo, extra: str):
+        if extra:
+            name = name + "_" + extra
+
+        folder = config.kernels_dir / Path(name)
+        user = os.environ["USER"]
+        default_remote = "origin"
+
+        dist_folder = folder / Path(Constants.DIST_TREE)
+        dist_local_branch = f"{{{user}}}_{kernel_info.dist_git_branch}"
+        if extra:
+            dist_local_branch += f"_{extra}"
+
+        dist_worktree = RepoWorktree(
+            source_root=Repo(kernel_info.dist_git_root.folder),
+            folder=dist_folder,
+            remote=default_remote,
+            remote_branch=kernel_info.dist_git_branch,
+            local_branch=dist_local_branch,
+        )
+
+        src_folder = folder / Path(Constants.SRC_TREE)
+        src_local_branch = f"{{{user}}}_{kernel_info.src_tree_branch}"
+        if extra:
+            src_local_branch += f"_{extra}"
+
+        src_worktree = RepoWorktree(
+            source_root=Repo(kernel_info.src_tree_root.folder),
+            folder=src_folder,
+            remote=default_remote,
+            remote_branch=kernel_info.src_tree_branch,
+            local_branch=src_local_branch,
+        )
+
+        return cls(
+            folder=folder,
+            dist_worktree=dist_worktree,
+            src_worktree=src_worktree,
+        )
+
+    def setup(self):
+        # Make sure the folder is created
+        self.folder.mkdir(parents=True, exist_ok=True)
+
+        self.dist_worktree.setup()
+        self.src_worktree.setup()
+
+    def cleanup(self):
+        self.dist_worktree.cleanup()
+        self.src_worktree.cleanup()
+
+        # Remove working directory that includes the above git worktrees
+        self.folder.rmtree(ignore_errors=True)
