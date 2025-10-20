@@ -227,3 +227,71 @@ This is the working directory for this kernel:
 
     This representes branch `{<user>}/ciqlts9_4:origin/ciqlts9_4`
     The source repo is ~/ciq/kernel-src-tree
+
+### kt vm
+
+It spins up a virtual machine for the corresponding kernel.
+If the virtual machine does not exist, it gets created.
+
+First, the vm image base (source) is downloaded if it does not exist
+in <config.images_source_dir>.
+To spin up the machine, a copy of this qcow2 image is put in
+<config.images_dir/<kernel>. Even if kernels may share the same image base,
+they will have their own configuration and image.
+cloud-init.yaml configuration is taken from kt/data and modified accordingly
+for each user and then put in the same folder.
+
+Make sure your user is part of the libvirt group, otherwise you would need
+to type your root password multiple times when getting access to the vm:
+```
+$ sudo usermod -a -G libvirt $(whoami)
+```
+
+#### Example:
+```
+$ kt vm lts9_4
+```
+
+For this configuration
+```
+{
+    "base_path": "~/ciq",
+    "kernels_dir": "~/ciq/kernels",
+    "images_source_dir": "~/ciq/default_test_images",
+    "images_dir": "~/ciq/tmp/virt-images",
+    "ssh_key": "~/.ssh/id_ed25519_generic.pub",
+}
+```
+
+Here is the qcow2 vm image used as source for other vms as well:
+
+```
+~/ciq/default_test_images/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2
+```
+
+And here are the actual vm configuration and image files:
+```
+ciq/tmp/virt-images/lts-9.4/cloud-init.yaml
+ciq/tmp/virt-images/lts-9.4/lts-9.4.qcow2
+```
+
+The cloud-init.yaml file is adapted from kt/data/cloud-init.yaml base file.
+
+`virt-install` command is then used to create the vm.
+
+If `--console` option is used, then `virsh --connect qemu://system console lts9-4`
+is run (indirectly).
+
+
+If `--test` option is used, then we connect to the vm via ssh and run
+
+```
+<config.base_path>/kernel-src-tree-tools/kernel-build.sh -n
+```
+
+reboot
+and then
+
+```
+<config.base_path>/kernel-src-tree-tools/kernel-kselftest.sh
+```
