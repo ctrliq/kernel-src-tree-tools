@@ -204,7 +204,7 @@ def main():
         short_hash, subject = get_short_hash_and_subject(args.repo, sha)
         pr_commit_desc = f"{short_hash} ({subject})"
         msg = get_commit_message(args.repo, sha)
-        upstream_hashes = re.findall(r'^commit\s+([0-9a-fA-F]{12,40})', msg, re.MULTILINE)
+        upstream_hashes = re.findall(r'^commit\s+([0-9a-fA-F]{40})', msg, re.MULTILINE)
         for uhash in upstream_hashes:
             short_uhash = uhash[:12]
             # Ensure the referenced commit in the PR actually exists in the upstream ref.
