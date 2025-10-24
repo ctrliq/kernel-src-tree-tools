@@ -145,22 +145,21 @@ if __name__ == '__main__':
     print('[rolling release update] Latest RESF tag sha: ', latest_resf_sha)
     print(repo.git.show('--pretty="%H %s"', '-s', latest_resf_sha.decode()))
 
-    if 'fips' in rolling_product:
-        print('[rolling release update] Checking for FIPS protected changes between the common tag and HEAD')
-        shas_to_check = check_for_fips_protected_changes(repo, args.new_base_branch, latest_resf_sha)
-        if shas_to_check and args.fips_override is False:
-            for sha,dir in shas_to_check.items():
-                print(f"## Commit {sha.decode()}")
-                print('\'\'\'')
-                dir_list = []
-                for d in dir:
-                    dir_list.append(d.decode())
-                print(repo.git.show(sha.decode(), dir_list))
-                print('\'\'\'')
-            print('[rolling release update] FIPS protected changes found between the common tag and HEAD')
-            print('[rolling release update] Please Contact the CIQ FIPS / Security team for further instructions')
-            print('[rolling release update] Exiting')
-            exit(1)
+    print('[rolling release update] Checking for FIPS protected changes between the common tag and HEAD')
+    shas_to_check = check_for_fips_protected_changes(repo, args.new_base_branch, latest_resf_sha)
+    if shas_to_check and args.fips_override is False:
+        for sha,dir in shas_to_check.items():
+            print(f"## Commit {sha.decode()}")
+            print('\'\'\'')
+            dir_list = []
+            for d in dir:
+                dir_list.append(d.decode())
+            print(repo.git.show(sha.decode(), dir_list))
+            print('\'\'\'')
+        print('[rolling release update] FIPS protected changes found between the common tag and HEAD')
+        print('[rolling release update] Please Contact the CIQ FIPS / Security team for further instructions')
+        print('[rolling release update] Exiting')
+        exit(1)
 
 
     print('[rolling release update] Checking out old rolling branch: ', args.old_rolling_branch)
