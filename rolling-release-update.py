@@ -29,8 +29,15 @@ def get_branch_tag_sha_list(repo, branch):
     tags = []
     for line in results.stdout.split(b'\n'):
         if b'tag: resf_kernel' in line:
-            print(line)
             tags.append(line.split(b' ')[0])
+
+    # Print summary instead of all tags
+    if len(tags) > 0:
+        print(f'[rolling release update] Found {len(tags)} RESF kernel tags')
+        if DEBUG:
+            for line_tag in tags:
+                print(f'  {line_tag.decode()}')
+
     return tags
 
 def check_for_fips_protected_changes(repo, branch, common_tag):
@@ -136,10 +143,12 @@ if __name__ == '__main__':
     print('[rolling release update] Rolling Product: ', rolling_product)
 
     old_rolling_branch_tags = get_branch_tag_sha_list(repo, args.old_rolling_branch)
-    print('[rolling release update] Old Rolling Branch Tags: ', old_rolling_branch_tags)
+    if DEBUG:
+        print('[rolling release update] Old Rolling Branch Tags: ', old_rolling_branch_tags)
 
     new_base_branch_tags = get_branch_tag_sha_list(repo, args.new_base_branch)
-    print('[rolling release update] New Base Branch Tags: ', new_base_branch_tags)
+    if DEBUG:
+        print('[rolling release update] New Base Branch Tags: ', new_base_branch_tags)
 
     latest_resf_sha = find_common_tag(old_rolling_branch_tags, new_base_branch_tags)
     print('[rolling release update] Latest RESF tag sha: ', latest_resf_sha)
@@ -179,14 +188,15 @@ if __name__ == '__main__':
 
     print('[rolling release update] Last RESF tag sha: ', latest_resf_sha)
 
-    print('[rolling release update] Total Commit in old branch: ', len(rolling_commit_map))
-    print('{ "CIQ COMMMIT" : "UPSTREAM COMMMIT" }')
-    if len(rolling_commit_map) > 10:
-        print('Printing first 5 and last 5 commits')
-        print(json.dumps({k: rolling_commit_map[k] for k in list(rolling_commit_map)[:5]}, indent=2))
-        print(json.dumps({k: rolling_commit_map[k] for k in list(rolling_commit_map)[-5:]}, indent=2))
-    else:
-        print(json.dumps(rolling_commit_map, indent=2))
+    print(f'[rolling release update] Total commits in old branch: {len(rolling_commit_map)}')
+    if DEBUG:
+        print('{ "CIQ COMMIT" : "UPSTREAM COMMIT" }')
+        if len(rolling_commit_map) > 10:
+            print('Printing first 5 and last 5 commits')
+            print(json.dumps({k: rolling_commit_map[k] for k in list(rolling_commit_map)[:5]}, indent=2))
+            print(json.dumps({k: rolling_commit_map[k] for k in list(rolling_commit_map)[-5:]}, indent=2))
+        else:
+            print(json.dumps(rolling_commit_map, indent=2))
 
     print('[rolling release update] Checking out new base branch: ', args.new_base_branch)
     repo.git.checkout(args.new_base_branch)
@@ -198,27 +208,30 @@ if __name__ == '__main__':
     new_rolling_branch_kernel = ''
     for line in results.stdout.split(b'\n'):
         if b'tag: resf_kernel' in line:
-            print(line)
+            if DEBUG:
+                print(line)
             r = re.match(b'.*(?P<vendor>.*)_kernel-(?P<kernel_ver>[0-9.-]*el[0-9]{1,2}_[0-9]*)', line)
-            print(r)
             if r:
                 new_rolling_branch_kernel = r.group('kernel_ver')
+                if DEBUG:
+                    print(f'[rolling release update] Matched kernel version: {new_rolling_branch_kernel.decode()}')
             break
 
     if args.demo:
         new_rolling_branch_kernel = f'demo_{rolling_product}/{new_rolling_branch_kernel.decode()}'
     else:
         new_rolling_branch_kernel = f'{rolling_product}/{new_rolling_branch_kernel.decode()}'
-    print('[rolling release update} New Branch to create ', new_rolling_branch_kernel)
+    print(f'[rolling release update] New Branch to create: {new_rolling_branch_kernel}')
     
-    print('[rolling release update] Check if branch Exists: ', new_rolling_branch_kernel)
+    if DEBUG:
+        print(f'[rolling release update] Check if branch exists: {new_rolling_branch_kernel}')
     results = subprocess.run(['git', 'show-ref', '--quiet', f'refs/heads/{new_rolling_branch_kernel}'],
                             stderr=subprocess.PIPE, stdout=subprocess.PIPE, cwd=args.repo)
     if results.returncode == 0:
-        print(f'Branch {new_rolling_branch_kernel} already exists')
+        print(f'[rolling release update] ERROR: Branch {new_rolling_branch_kernel} already exists')
         exit(1)
     else:
-        print(f'Branch {new_rolling_branch_kernel} does not exists creating')
+        print(f'[rolling release update] Creating new branch: {new_rolling_branch_kernel}')
         results = subprocess.run(['git', 'checkout', '-b', new_rolling_branch_kernel], stderr=subprocess.PIPE,
                                 stdout=subprocess.PIPE, cwd=args.repo)
     if results.returncode != 0:
@@ -246,14 +259,15 @@ if __name__ == '__main__':
             new_base_commit_map[ciq_commit] = upstream_commit
             new_base_commit_map_rev[upstream_commit] = ciq_commit
 
-    print('[rolling release update] Total Commit in new branch: ', len(new_base_commit_map))
-    print('{ "CIQ COMMMIT" : "UPSTREAM COMMMIT" }')
-    if len(new_base_commit_map) > 10:
-        print('Printing first 5 and last 5 commits')
-        print(json.dumps({k: new_base_commit_map[k] for k in list(new_base_commit_map)[:5]}, indent=2))
-        print(json.dumps({k: new_base_commit_map[k] for k in list(new_base_commit_map)[-5:]}, indent=2))
-    else:
-        print(json.dumps(new_base_commit_map, indent=2))
+    print(f'[rolling release update] Total commits in new branch: {len(new_base_commit_map)}')
+    if DEBUG:
+        print('{ "CIQ COMMIT" : "UPSTREAM COMMIT" }')
+        if len(new_base_commit_map) > 10:
+            print('Printing first 5 and last 5 commits')
+            print(json.dumps({k: new_base_commit_map[k] for k in list(new_base_commit_map)[:5]}, indent=2))
+            print(json.dumps({k: new_base_commit_map[k] for k in list(new_base_commit_map)[-5:]}, indent=2))
+        else:
+            print(json.dumps(new_base_commit_map, indent=2))
 
     print('[rolling release update] Checking if any of the commits from the old rolling release are already present in the new base branch')
     commits_to_remove = {}
@@ -266,20 +280,28 @@ if __name__ == '__main__':
             commits_to_remove[ciq_commit] = upstream_commit
 
 
-    print('[rolling release update] Removing commits from the new branch')
-    for ciq_commit, upstream_commit in commits_to_remove.items():
-        del rolling_commit_map[ciq_commit]
-        if args.verbose_git_show:
-            print(repo.git.show(ciq_commit))
-        else:
-            print(repo.git.show('--pretty=oneline', '-s', ciq_commit))
+    print(f'[rolling release update] Found {len(commits_to_remove)} duplicate commits to remove')
+    if commits_to_remove:
+        print('[rolling release update] Removing duplicate commits:')
+        for ciq_commit, upstream_commit in commits_to_remove.items():
+            del rolling_commit_map[ciq_commit]
+            if args.verbose_git_show:
+                print(repo.git.show(ciq_commit))
+            else:
+                print(f'  - {repo.git.show("--pretty=oneline", "-s", ciq_commit)}')
 
-    print('[rolling release update] Applying the remaining commits to the new branch')
+    print(f'[rolling release update] Applying {len(rolling_commit_map)} remaining commits to the new branch')
+    commits_applied = 0
     for ciq_commit, upstream_commit in reversed(rolling_commit_map.items()):
-        print('Applying commit ', repo.git.show('--pretty="%H %s"', '-s', ciq_commit))
+        commits_applied += 1
+        commit_info = repo.git.show('--pretty=%h %s', '-s', ciq_commit)
+        print(f'  [{commits_applied}/{len(rolling_commit_map)}] {commit_info}')
         result = subprocess.run(['git', 'cherry-pick', '-s', ciq_commit], stderr=subprocess.PIPE,
                                 stdout=subprocess.PIPE, cwd=args.repo)
         if result.returncode != 0:
-            print(result.stderr.split(b'\n'))
+            print(f'[rolling release update] ERROR: Failed to cherry-pick commit {ciq_commit}')
+            print(result.stderr.decode('utf-8'))
             exit(1)
+
+    print(f'[rolling release update] Successfully applied all {commits_applied} commits')
 
