@@ -161,6 +161,9 @@ if __name__ == "__main__":
         "--demo", help="DEMO mode, will make a new set of branches with demo_ prepended", action="store_true"
     )
     parser.add_argument("--debug", help="Enable debug output", action="store_true")
+    parser.add_argument(
+        "--interactive", help="Interactive mode - pause on merge conflicts for user resolution", action="store_true"
+    )
     args = parser.parse_args()
 
     if args.demo:
@@ -366,6 +369,80 @@ if __name__ == "__main__":
         if result.returncode != 0:
             print(f"[rolling release update] ERROR: Failed to cherry-pick commit {ciq_commit}")
             print(result.stderr.decode("utf-8"))
-            exit(1)
+
+            if args.interactive:
+                print("[rolling release update] ========================================")
+                print("[rolling release update] INTERACTIVE MODE: Merge conflict detected")
+                print("[rolling release update] ========================================")
+                print("[rolling release update] Please resolve or skip the merge conflict manually.")
+                print("[rolling release update] To resolve:")
+                print("[rolling release update]   1. Fix merge conflicts in the working directory")
+                print("[rolling release update]   2. Stage resolved files: git add <files>")
+                print("[rolling release update]   3. Complete cherry-pick: git cherry-pick --continue")
+                print("[rolling release update]      (or commit manually if needed)")
+                print("[rolling release update] To skip:")
+                print("[rolling release update]   1. To skip this commit: git cherry-pick --skip")
+                print("[rolling release update] When done:")
+                print("[rolling release update]   Return here and press Enter to continue")
+                print("[rolling release update] ========================================")
+
+                # Loop until conflict is resolved or user aborts
+                while True:
+                    user_input = input(
+                        '[rolling release update] Press Enter when resolved (or type "stop"/"abort" to exit): '
+                    ).strip().lower()
+
+                    if user_input in ["stop", "abort"]:
+                        print("[rolling release update] ========================================")
+                        print("[rolling release update] User aborted. Remaining commits to forward port:")
+                        print("[rolling release update] ========================================")
+
+                        # Print remaining commits including the current failed one
+                        remaining_commits = list(reversed(rolling_commit_map.items()))
+                        start_idx = remaining_commits.index((ciq_commit, upstream_commit))
+
+                        for remaining_commit, remaining_upstream in remaining_commits[start_idx:]:
+                            short_sha = repo.git.rev_parse("--short", remaining_commit)
+                            summary = repo.git.show("--pretty=%s", "-s", remaining_commit)
+                            print(f"  {short_sha} {summary}")
+
+                        print("[rolling release update] ========================================")
+                        print(f"[rolling release update] Total remaining: {len(remaining_commits) - start_idx} commits")
+                        exit(1)
+
+                    # Verify the cherry-pick was completed successfully
+                    # Check if CHERRY_PICK_HEAD still exists (indicates incomplete cherry-pick)
+                    cherry_pick_head = os.path.join(args.repo, ".git", "CHERRY_PICK_HEAD")
+                    if os.path.exists(cherry_pick_head):
+                        print("[rolling release update] ERROR: Cherry-pick not completed (.git/CHERRY_PICK_HEAD still exists)")
+                        print("[rolling release update] Please complete the cherry-pick with:")
+                        print("[rolling release update]   git cherry-pick --continue")
+                        print("[rolling release update] or abort with:")
+                        print("[rolling release update]   git cherry-pick --abort")
+                        print('[rolling release update] Type "stop" or "abort" to exit, or press Enter to check again')
+                        continue
+
+                    # Check for uncommitted changes
+                    status_result = subprocess.run(
+                        ["git", "status", "--porcelain"], stderr=subprocess.PIPE, stdout=subprocess.PIPE, cwd=args.repo
+                    )
+                    if status_result.returncode != 0:
+                        print("[rolling release update] ERROR: Could not check git status")
+                        print('[rolling release update] Type "stop" or "abort" to exit, or press Enter to check again')
+                        continue
+
+                    if status_result.stdout.strip():
+                        print("[rolling release update] ERROR: There are still uncommitted changes")
+                        print("[rolling release update] Status:")
+                        print(status_result.stdout.decode("utf-8"))
+                        print("[rolling release update] Please commit or stash changes before continuing")
+                        print('[rolling release update] Type "stop" or "abort" to exit, or press Enter to check again')
+                        continue
+
+                    # If we got here, everything is resolved
+                    print("[rolling release update] Cherry-pick resolved successfully, continuing...")
+                    break
+            else:
+                exit(1)
 
     print(f"[rolling release update] Successfully applied all {commits_applied} commits")
