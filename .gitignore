@@ -1,0 +1,11 @@
+__pycache__/
+
+# Ruff stuff:
+.ruff_cache/
+
+venv/
+env/
+.venv/
+.env/
+
+*.egg-info/
