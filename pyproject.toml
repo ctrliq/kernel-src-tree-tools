@@ -1,0 +1,26 @@
+# This is not an installable project at the moment.
+# This is used to control dependencies and liter configuration
+[project]
+name = "kernel-src-tree-tools"
+requires-python = ">=3.10"
+readme = "README.md"
+version = "0.0.1"
+dependencies = [
+]
+
+[project.optional-dependencies]
+dev = [
+    "pre-commit",
+    "ruff",
+	]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+# Ignore the `line-too-long` for now
+ignore = ["E501"]
+
+[tool.setuptools]
+# suppress error: Multiple top-level packages
+py-modules = []
