@@ -82,7 +82,7 @@ def run_interdiff(repo, backport_sha, upstream_sha, interdiff_path):
             up_path = up.name
 
         interdiff_result = subprocess.run(
-            [interdiff_path, '--fuzzy', bp_path, up_path],
+            [interdiff_path, '--fuzzy=0', bp_path, up_path],
             text=True,
             capture_output=True,
             check=False
