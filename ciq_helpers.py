@@ -3,10 +3,11 @@
 
 # CIQ Kernel Tools  function library
 
-import git
 import os
 import re
 import subprocess
+
+import git
 
 
 def process_full_commit_message(commit):
@@ -84,9 +85,7 @@ def get_backport_commit_data(repo, branch, common_ancestor, allow_duplicates=Fal
 
     for line in lines:
         if len(commit) > 0 and line.startswith(b"commit "):
-            upstream_commit, cves, tickets, upstream_subject, repo_commit = (
-                process_full_commit_message(commit)
-            )
+            upstream_commit, cves, tickets, upstream_subject, repo_commit = process_full_commit_message(commit)
             if upstream_commit in upstream_commits:
                 print(f"WARNING: {upstream_commit} already in upstream_commits")
                 if not allow_duplicates:
@@ -104,9 +103,7 @@ def get_backport_commit_data(repo, branch, common_ancestor, allow_duplicates=Fal
     return upstream_commits, True
 
 
-def CIQ_cherry_pick_commit_standardization(
-    lines, commit, tags=None, jira="", optional_msg=""
-):
+def CIQ_cherry_pick_commit_standardization(lines, commit, tags=None, jira="", optional_msg=""):
     """Standardize CIQ the cherry-pick commit message.
     Parameters:
     lines: Original SHAS commit message.
@@ -159,13 +156,17 @@ def CIQ_original_commit_author_to_tag_string(repo_path, sha):
 
     Return: String for Tag
     """
-    git_auth_res = subprocess.run(['git', 'show', '--pretty="%aN <%aE>"', '--no-patch', sha], stderr=subprocess.PIPE,
-                                  stdout=subprocess.PIPE, cwd=repo_path)
+    git_auth_res = subprocess.run(
+        ["git", "show", '--pretty="%aN <%aE>"', "--no-patch", sha],
+        stderr=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        cwd=repo_path,
+    )
     if git_auth_res.returncode != 0:
         print(f"[FAILED] git show --pretty='%aN <%aE>' --no-patch {sha}")
         print(f"[FAILED][STDERR:{git_auth_res.returncode}] {git_auth_res.stderr.decode('utf-8')}")
         return None
-    return "commit-author " + git_auth_res.stdout.decode('utf-8').replace('\"', '').strip()
+    return "commit-author " + git_auth_res.stdout.decode("utf-8").replace('"', "").strip()
 
 
 def repo_init(repo):
