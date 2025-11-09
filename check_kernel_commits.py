@@ -1,52 +1,59 @@
 #!/usr/bin/env python3
 
 import argparse
-import subprocess
+import os
 import re
+import subprocess
 import sys
 import textwrap
-import os
 from typing import Optional
+
 
 def run_git(repo, args):
     """Run a git command in the given repository and return its output as a string."""
-    result = subprocess.run(['git', '-C', repo] + args, text=True, capture_output=True, check=False)
+    result = subprocess.run(["git", "-C", repo] + args, text=True, capture_output=True, check=False)
     if result.returncode != 0:
         raise RuntimeError(f"Git command failed: {' '.join(args)}\n{result.stderr}")
     return result.stdout
 
+
 def ref_exists(repo, ref):
     """Return True if the given ref exists in the repository, False otherwise."""
     try:
-        run_git(repo, ['rev-parse', '--verify', '--quiet', ref])
+        run_git(repo, ["rev-parse", "--verify", "--quiet", ref])
         return True
     except RuntimeError:
         return False
 
+
 def get_pr_commits(repo, pr_branch, base_branch):
     """Get a list of commit SHAs that are in the PR branch but not in the base branch."""
-    output = run_git(repo, ['rev-list', f'{base_branch}..{pr_branch}'])
+    output = run_git(repo, ["rev-list", f"{base_branch}..{pr_branch}"])
     return output.strip().splitlines()
+
 
 def get_commit_message(repo, sha):
     """Get the commit message for a given commit SHA."""
-    return run_git(repo, ['log', '-n', '1', '--format=%B', sha])
+    return run_git(repo, ["log", "-n", "1", "--format=%B", sha])
+
 
 def get_short_hash_and_subject(repo, sha):
     """Get the abbreviated commit hash and subject for a given commit SHA."""
-    output = run_git(repo, ['log', '-n', '1', '--format=%h%x00%s', sha]).strip()
-    short_hash, subject = output.split('\x00', 1)
+    output = run_git(repo, ["log", "-n", "1", "--format=%h%x00%s", sha]).strip()
+    short_hash, subject = output.split("\x00", 1)
     return short_hash, subject
+
 
 def hash_exists_in_mainline(repo, upstream_ref, hash_):
     """
     Return True if hash_ is reachable from upstream_ref (i.e., is an ancestor of it).
     """
     try:
-        run_git(repo, ['merge-base', '--is-ancestor', hash_, upstream_ref])
+        run_git(repo, ["merge-base", "--is-ancestor", hash_, upstream_ref])
         return True
     except RuntimeError:
         return False
+
 
 def find_fixes_in_mainline(repo, pr_branch, upstream_ref, hash_):
     """
@@ -56,15 +63,13 @@ def find_fixes_in_mainline(repo, pr_branch, upstream_ref, hash_):
     """
     results = []
     # Get all commits with 'Fixes:' in the message
-    output = run_git(repo, [
-        'log', upstream_ref, '--grep', 'Fixes:', '-i', '--format=%H %h %s (%an)%x0a%B%x00'
-    ]).strip()
+    output = run_git(repo, ["log", upstream_ref, "--grep", "Fixes:", "-i", "--format=%H %h %s (%an)%x0a%B%x00"]).strip()
     if not output:
         return []
     # Each commit is separated by a NUL character and a newline
-    commits = output.split('\x00\x0a')
+    commits = output.split("\x00\x0a")
     # Prepare hash prefixes from 12 down to 6
-    hash_prefixes = [hash_[:l] for l in range(12, 5, -1)]
+    hash_prefixes = [hash_[:index] for index in range(12, 5, -1)]
     for commit in commits:
         if not commit.strip():
             continue
@@ -76,75 +81,88 @@ def find_fixes_in_mainline(repo, pr_branch, upstream_ref, hash_):
         full_hash = header.split()[0]
         # Search for Fixes: lines in the commit message
         for line in lines[1:]:
-            m = re.match(r'^\s*Fixes:\s*([0-9a-fA-F]{6,40})', line, re.IGNORECASE)
+            m = re.match(r"^\s*Fixes:\s*([0-9a-fA-F]{6,40})", line, re.IGNORECASE)
             if m:
                 for prefix in hash_prefixes:
                     if m.group(1).lower().startswith(prefix.lower()):
                         if not commit_exists_in_branch(repo, pr_branch, full_hash):
-                            results.append((full_hash, ' '.join(header.split()[1:])))
+                            results.append((full_hash, " ".join(header.split()[1:])))
                         break
             else:
                 continue
     return results
+
 
 def commit_exists_in_branch(repo, pr_branch, upstream_hash_):
     """
     Return True if upstream_hash_ has been backported and it exists in the
     pr branch
     """
-    output = run_git(repo, ['log', pr_branch, '--grep', 'commit ' + upstream_hash_])
+    output = run_git(repo, ["log", pr_branch, "--grep", "commit " + upstream_hash_])
     if not output:
         return False
 
     return True
 
-def wrap_paragraph(text, width=80, initial_indent='', subsequent_indent=''):
+
+def wrap_paragraph(text, width=80, initial_indent="", subsequent_indent=""):
     """Wrap a paragraph of text to the specified width and indentation."""
-    wrapper = textwrap.TextWrapper(width=width,
-                                   initial_indent=initial_indent,
-                                   subsequent_indent=subsequent_indent,
-                                   break_long_words=False,
-                                   break_on_hyphens=False)
+    wrapper = textwrap.TextWrapper(
+        width=width,
+        initial_indent=initial_indent,
+        subsequent_indent=subsequent_indent,
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
     return wrapper.fill(text)
+
 
 def extract_cve_from_message(msg):
     """Extract CVE reference from commit message. Returns CVE ID or None.
     Only matches 'cve CVE-2025-12345', ignores 'cve-bf' and 'cve-pre' variants."""
-    match = re.search(r'(?<!\S)cve\s+(CVE-\d{4}-\d+)', msg, re.IGNORECASE)
+    match = re.search(r"(?<!\S)cve\s+(CVE-\d{4}-\d+)", msg, re.IGNORECASE)
     if match:
         return match.group(1).upper()
     return None
+
 
 def run_cve_search(vulns_repo, kernel_repo, query) -> tuple[bool, Optional[str]]:
     """
     Run the cve_search script from the vulns repo.
     Returns (success, output_message).
     """
-    cve_search_path = os.path.join(vulns_repo, 'scripts', 'cve_search')
+    cve_search_path = os.path.join(vulns_repo, "scripts", "cve_search")
     if not os.path.exists(cve_search_path):
         raise RuntimeError(f"cve_search script not found at {cve_search_path}")
 
     env = os.environ.copy()
-    env['CVEKERNELTREE'] = kernel_repo
+    env["CVEKERNELTREE"] = kernel_repo
 
-    result = subprocess.run([cve_search_path, query],
-                          text=True,
-                          capture_output=True,
-                          check=False,
-                          env=env)
+    result = subprocess.run([cve_search_path, query], text=True, capture_output=True, check=False, env=env)
 
     # cve_search outputs results to stdout
     return result.returncode == 0, result.stdout.strip()
+
 
 def main():
     parser = argparse.ArgumentParser(description="Check upstream references and Fixes: tags in PR branch commits.")
     parser.add_argument("--repo", help="Path to the git repo", required=True)
     parser.add_argument("--pr_branch", help="Name of the PR branch", required=True)
     parser.add_argument("--base_branch", help="Name of the base branch", required=True)
-    parser.add_argument("--markdown", action='store_true', help="Output in Markdown, suitable for GitHub PR comments")
-    parser.add_argument("--upstream-ref", default="origin/kernel-mainline", help="Reference to upstream mainline branch (default: origin/kernel-mainline)")
-    parser.add_argument("--check-cves", action='store_true', help="Check that CVE references in commit messages match upstream commit hashes")
-    parser.add_argument("--vulns-dir", default="../vulns", help="Path to the kernel vulnerabilities repo (default: ../vulns)")
+    parser.add_argument("--markdown", action="store_true", help="Output in Markdown, suitable for GitHub PR comments")
+    parser.add_argument(
+        "--upstream-ref",
+        default="origin/kernel-mainline",
+        help="Reference to upstream mainline branch (default: origin/kernel-mainline)",
+    )
+    parser.add_argument(
+        "--check-cves",
+        action="store_true",
+        help="Check that CVE references in commit messages match upstream commit hashes",
+    )
+    parser.add_argument(
+        "--vulns-dir", default="../vulns", help="Path to the kernel vulnerabilities repo (default: ../vulns)"
+    )
     args = parser.parse_args()
 
     upstream_ref = args.upstream_ref
@@ -158,17 +176,16 @@ def main():
         if os.path.exists(vulns_repo):
             # Repository exists, update it with git pull
             try:
-                run_git(vulns_repo, ['pull'])
+                run_git(vulns_repo, ["pull"])
             except RuntimeError as e:
                 print(f"WARNING: Failed to update vulns repo: {e}")
                 print("Continuing with existing repository...")
         else:
             # Repository doesn't exist, clone it
             try:
-                result = subprocess.run(['git', 'clone', vulns_repo_url, vulns_repo],
-                                      text=True,
-                                      capture_output=True,
-                                      check=False)
+                result = subprocess.run(
+                    ["git", "clone", vulns_repo_url, vulns_repo], text=True, capture_output=True, check=False
+                )
                 if result.returncode != 0:
                     print(f"ERROR: Failed to clone vulns repo: {result.stderr}")
                     sys.exit(1)
@@ -178,9 +195,11 @@ def main():
 
     # Validate that all required refs exist before continuing
     missing_refs = []
-    for refname, refval in [('upstream reference', upstream_ref),
-                            ('PR branch', args.pr_branch),
-                            ('base branch', args.base_branch)]:
+    for refname, refval in [
+        ("upstream reference", upstream_ref),
+        ("PR branch", args.pr_branch),
+        ("base branch", args.base_branch),
+    ]:
         if not ref_exists(args.repo, refval):
             missing_refs.append((refname, refval))
     if missing_refs:
@@ -204,7 +223,7 @@ def main():
         short_hash, subject = get_short_hash_and_subject(args.repo, sha)
         pr_commit_desc = f"{short_hash} ({subject})"
         msg = get_commit_message(args.repo, sha)
-        upstream_hashes = re.findall(r'^commit\s+([0-9a-fA-F]{40})', msg, re.MULTILINE)
+        upstream_hashes = re.findall(r"^commit\s+([0-9a-fA-F]{40})", msg, re.MULTILINE)
         for uhash in upstream_hashes:
             short_uhash = uhash[:12]
             # Ensure the referenced commit in the PR actually exists in the upstream ref.
@@ -218,11 +237,14 @@ def main():
                     )
                 else:
                     prefix = "[NOTFOUND] "
-                    header = (f"{prefix}PR commit {pr_commit_desc} references upstream commit "
-                              f"{short_uhash}, which does not exist in kernel-mainline.")
+                    header = (
+                        f"{prefix}PR commit {pr_commit_desc} references upstream commit "
+                        f"{short_uhash}, which does not exist in kernel-mainline."
+                    )
                     out_lines.append(
-                        wrap_paragraph(header, width=80, initial_indent='',
-                                       subsequent_indent=' ' * len(prefix))  # spaces for '[NOTFOUND] '
+                        wrap_paragraph(
+                            header, width=80, initial_indent="", subsequent_indent=" " * len(prefix)
+                        )  # spaces for '[NOTFOUND] '
                     )
                     out_lines.append("")  # blank line
                 continue
@@ -238,7 +260,7 @@ def main():
                             success, cve_output = run_cve_search(vulns_repo, args.repo, fix_hash)
                             if success:
                                 # Parse the CVE from the result
-                                match = re.search(r'(CVE-\d{4}-\d+)\s+is assigned to git id', cve_output)
+                                match = re.search(r"(CVE-\d{4}-\d+)\s+is assigned to git id", cve_output)
                                 if match:
                                     bugfix_cve = match.group(1)
                                     fix_cves[fix_hash] = bugfix_cve
@@ -265,15 +287,18 @@ def main():
                     )
                 else:
                     prefix = "[FIXES] "
-                    header = (f"{prefix}PR commit {pr_commit_desc} references upstream commit "
-                              f"{short_uhash}, which has Fixes tags:")
+                    header = (
+                        f"{prefix}PR commit {pr_commit_desc} references upstream commit "
+                        f"{short_uhash}, which has Fixes tags:"
+                    )
                     out_lines.append(
-                        wrap_paragraph(header, width=80, initial_indent='',
-                                       subsequent_indent=' ' * len(prefix))  # spaces for '[FIXES] '
+                        wrap_paragraph(
+                            header, width=80, initial_indent="", subsequent_indent=" " * len(prefix)
+                        )  # spaces for '[FIXES] '
                     )
                     out_lines.append("")  # blank line after 'Fixes tags:'
                     for line in fixes_text.splitlines():
-                        out_lines.append('    ' + line)
+                        out_lines.append("    " + line)
                     out_lines.append("")  # blank line
 
             # Check CVE if enabled
@@ -285,8 +310,9 @@ def main():
                     success, cve_output = run_cve_search(vulns_repo, args.repo, uhash)
                     if success:
                         # Parse the output to get the CVE from the result
-                        # Expected format: "CVE-2024-35962 is assigned to git id 65acf6e0501ac8880a4f73980d01b5d27648b956"
-                        match = re.search(r'(CVE-\d{4}-\d+)\s+is assigned to git id', cve_output)
+                        # Expected format: "CVE-2024-35962 is assigned to git id
+                        # 65acf6e0501ac8880a4f73980d01b5d27648b956"
+                        match = re.search(r"(CVE-\d{4}-\d+)\s+is assigned to git id", cve_output)
                         if match:
                             found_cve = match.group(1)
 
@@ -301,11 +327,14 @@ def main():
                                         )
                                     else:
                                         prefix = "[CVE-MISMATCH] "
-                                        header = (f"{prefix}PR commit {pr_commit_desc} references {cve_id} but "
-                                                  f"upstream commit {short_uhash} is associated with {found_cve}")
+                                        header = (
+                                            f"{prefix}PR commit {pr_commit_desc} references {cve_id} but "
+                                            f"upstream commit {short_uhash} is associated with {found_cve}"
+                                        )
                                         out_lines.append(
-                                            wrap_paragraph(header, width=80, initial_indent='',
-                                                           subsequent_indent=' ' * len(prefix))
+                                            wrap_paragraph(
+                                                header, width=80, initial_indent="", subsequent_indent=" " * len(prefix)
+                                            )
                                         )
                                         out_lines.append("")  # blank line
                             else:
@@ -318,11 +347,14 @@ def main():
                                     )
                                 else:
                                     prefix = "[CVE-MISSING] "
-                                    header = (f"{prefix}PR commit {pr_commit_desc} does not reference a CVE but "
-                                              f"upstream commit {short_uhash} is associated with {found_cve}")
+                                    header = (
+                                        f"{prefix}PR commit {pr_commit_desc} does not reference a CVE but "
+                                        f"upstream commit {short_uhash} is associated with {found_cve}"
+                                    )
                                     out_lines.append(
-                                        wrap_paragraph(header, width=80, initial_indent='',
-                                                       subsequent_indent=' ' * len(prefix))
+                                        wrap_paragraph(
+                                            header, width=80, initial_indent="", subsequent_indent=" " * len(prefix)
+                                        )
                                     )
                                     out_lines.append("")  # blank line
                     else:
@@ -337,11 +369,14 @@ def main():
                                 )
                             else:
                                 prefix = "[CVE-NOTFOUND] "
-                                header = (f"{prefix}PR commit {pr_commit_desc} references {cve_id} but "
-                                          f"upstream commit {short_uhash} has no CVE assigned")
+                                header = (
+                                    f"{prefix}PR commit {pr_commit_desc} references {cve_id} but "
+                                    f"upstream commit {short_uhash} has no CVE assigned"
+                                )
                                 out_lines.append(
-                                    wrap_paragraph(header, width=80, initial_indent='',
-                                                   subsequent_indent=' ' * len(prefix))
+                                    wrap_paragraph(
+                                        header, width=80, initial_indent="", subsequent_indent=" " * len(prefix)
+                                    )
                                 )
                                 out_lines.append("")  # blank line
                 except (subprocess.SubprocessError, OSError) as e:
@@ -355,26 +390,25 @@ def main():
                             )
                         else:
                             prefix = "[CVE-ERROR] "
-                            header = (f"{prefix}PR commit {pr_commit_desc} references {cve_id} but "
-                                      f"failed to verify: {e}")
+                            header = f"{prefix}PR commit {pr_commit_desc} references {cve_id} but failed to verify: {e}"
                             out_lines.append(
-                                wrap_paragraph(header, width=80, initial_indent='',
-                                               subsequent_indent=' ' * len(prefix))
+                                wrap_paragraph(header, width=80, initial_indent="", subsequent_indent=" " * len(prefix))
                             )
                             out_lines.append("")  # blank line
 
     if any_findings:
         if args.markdown:
             print("## :mag: Upstream Linux Kernel Commit Check\n")
-            print('\n'.join(out_lines))
+            print("\n".join(out_lines))
             print("*This is an automated message from the kernel commit checker workflow.*")
         else:
-            print('\n'.join(out_lines))
+            print("\n".join(out_lines))
     else:
         if args.markdown:
             print("> ✅ **All referenced commits exist upstream and have no Fixes: tags.**")
         else:
             print("All referenced commits exist upstream and have no Fixes: tags.")
+
 
 if __name__ == "__main__":
     main()
