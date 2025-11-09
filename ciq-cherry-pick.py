@@ -1,44 +1,49 @@
 import argparse
 import os
 import subprocess
+
 import git
-from ciq_helpers import CIQ_cherry_pick_commit_standardization
-from ciq_helpers import CIQ_original_commit_author_to_tag_string
+
+from ciq_helpers import CIQ_cherry_pick_commit_standardization, CIQ_original_commit_author_to_tag_string
+
 # from ciq_helpers import *
 
-MERGE_MSG = git.Repo(os.getcwd()).git_dir + '/MERGE_MSG'
+MERGE_MSG = git.Repo(os.getcwd()).git_dir + "/MERGE_MSG"
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print("CIQ custom cherry picker")
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument('--sha', help='Target SHA1 to cherry-pick')
-    parser.add_argument('--ticket', help='Ticket associated to cherry-pick work, comma separated list is supported.')
-    parser.add_argument('--ciq-tag', help="Tags for commit message <feature><-optional modifier> <identifier>.\n"
-                        "example: cve CVE-2022-45884 - A patch for a CVE Fix.\n"
-                        "         cve-bf CVE-1974-0001 - A bug fix for a CVE currently being patched\n"
-                        "         cve-pre CVE-1974-0001 - A pre-condition or dependency needed for the CVE\n"
-                        "Multiple tags are separated with a comma. ex: cve CVE-1974-0001, cve CVE-1974-0002\n")
+    parser.add_argument("--sha", help="Target SHA1 to cherry-pick")
+    parser.add_argument("--ticket", help="Ticket associated to cherry-pick work, comma separated list is supported.")
+    parser.add_argument(
+        "--ciq-tag",
+        help="Tags for commit message <feature><-optional modifier> <identifier>.\n"
+        "example: cve CVE-2022-45884 - A patch for a CVE Fix.\n"
+        "         cve-bf CVE-1974-0001 - A bug fix for a CVE currently being patched\n"
+        "         cve-pre CVE-1974-0001 - A pre-condition or dependency needed for the CVE\n"
+        "Multiple tags are separated with a comma. ex: cve CVE-1974-0001, cve CVE-1974-0002\n",
+    )
     args = parser.parse_args()
 
     # Expand the provided SHA1 to the full SHA1 in case it's either abbreviated or an expression
-    git_sha_res = subprocess.run(['git', 'show', '--pretty=%H', '-s', args.sha], stdout=subprocess.PIPE)
+    git_sha_res = subprocess.run(["git", "show", "--pretty=%H", "-s", args.sha], stdout=subprocess.PIPE)
     if git_sha_res.returncode != 0:
         print(f"[FAILED] git show --pretty=%H -s {args.sha}")
         print("Subprocess Call:")
         print(git_sha_res)
         print("")
     else:
-        args.sha = git_sha_res.stdout.decode('utf-8').strip()
+        args.sha = git_sha_res.stdout.decode("utf-8").strip()
 
     tags = []
     if args.ciq_tag is not None:
-        tags = args.ciq_tag.split(',')
+        tags = args.ciq_tag.split(",")
 
     author = CIQ_original_commit_author_to_tag_string(repo_path=os.getcwd(), sha=args.sha)
     if author is None:
         exit(1)
 
-    git_res = subprocess.run(['git', 'cherry-pick', '-nsx', args.sha])
+    git_res = subprocess.run(["git", "cherry-pick", "-nsx", args.sha])
     if git_res.returncode != 0:
         print(f"[FAILED] git cherry-pick -nsx {args.sha}")
         print("       Manually resolve conflict and include `upstream-diff` tag in commit message")
@@ -47,7 +52,7 @@ if __name__ == '__main__':
         print("")
 
     print(os.getcwd())
-    subprocess.run(['cp', MERGE_MSG, f'{MERGE_MSG}.bak'])
+    subprocess.run(["cp", MERGE_MSG, f"{MERGE_MSG}.bak"])
 
     tags.append(author)
 
@@ -58,11 +63,11 @@ if __name__ == '__main__':
 
     print(f"Cherry Pick New Message for {args.sha}")
     for line in new_msg:
-        print(line.strip('\n'))
+        print(line.strip("\n"))
     print(f"\n Original Message located here: {MERGE_MSG}.bak")
 
     with open(MERGE_MSG, "w") as file:
         file.writelines(new_msg)
 
     if git_res.returncode == 0:
-        subprocess.run(['git', 'commit', '-F', MERGE_MSG])
+        subprocess.run(["git", "commit", "-F", MERGE_MSG])
