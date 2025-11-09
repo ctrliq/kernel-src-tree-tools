@@ -12,7 +12,6 @@ repos:
 exclude: |
   (?x)^(
   ciq-cherry-pick.py |
-  check_kernel_commits.py |
   ciq_helpers.py |
   jira_pr_check.py |
   release_config.py |
