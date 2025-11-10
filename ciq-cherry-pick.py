@@ -1,17 +1,42 @@
 import argparse
+import logging
 import os
 import subprocess
+import sys
 
 import git
 
-from ciq_helpers import CIQ_cherry_pick_commit_standardization, CIQ_original_commit_author_to_tag_string
-
-# from ciq_helpers import *
+from ciq_helpers import (
+    CIQ_cherry_pick_commit_standardization,
+    CIQ_commit_exists_in_current_branch,
+    CIQ_fixes_references,
+    CIQ_original_commit_author_to_tag_string,
+)
 
 MERGE_MSG = git.Repo(os.getcwd()).git_dir + "/MERGE_MSG"
 
+
+def check_fixes(sha):
+    """
+    Checks if commit has "Fixes:" references and if so, it checks if the
+    commit(s) that it tries to fix are part of the current branch
+    """
+
+    fixes = CIQ_fixes_references(repo_path=os.getcwd(), sha=sha)
+    if len(fixes) == 0:
+        logging.warning("The commit you try to cherry pick has no Fixes: reference; review it carefully")
+        return
+
+    for fix in fixes:
+        if not CIQ_commit_exists_in_current_branch(os.getcwd(), fix):
+            raise RuntimeError(f"The commit you want to cherry pick references a Fixes: {fix} but this is not here")
+
+
 if __name__ == "__main__":
     print("CIQ custom cherry picker")
+
+    logging.basicConfig(level=logging.INFO)
+
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("--sha", help="Target SHA1 to cherry-pick", required=True)
     parser.add_argument("--ticket", help="Ticket associated to cherry-pick work, comma separated list is supported.")
@@ -38,6 +63,12 @@ if __name__ == "__main__":
     tags = []
     if args.ciq_tag is not None:
         tags = args.ciq_tag.split(",")
+
+    try:
+        check_fixes(args.sha)
+    except Exception as e:
+        logging.error(e)
+        sys.exit(1)
 
     author = CIQ_original_commit_author_to_tag_string(repo_path=os.getcwd(), sha=args.sha)
     if author is None:
