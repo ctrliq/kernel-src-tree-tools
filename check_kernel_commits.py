@@ -8,19 +8,19 @@ import sys
 import textwrap
 from typing import Optional
 
-
-def run_git(repo, args):
-    """Run a git command in the given repository and return its output as a string."""
-    result = subprocess.run(["git", "-C", repo] + args, text=True, capture_output=True, check=False)
-    if result.returncode != 0:
-        raise RuntimeError(f"Git command failed: {' '.join(args)}\n{result.stderr}")
-    return result.stdout
+from ciq_helpers import (
+    CIQ_commit_exists_in_branch,
+    CIQ_extract_fixes_references_from_commit_body_lines,
+    CIQ_get_commit_body,
+    CIQ_hash_exists_in_ref,
+    CIQ_run_git,
+)
 
 
 def ref_exists(repo, ref):
     """Return True if the given ref exists in the repository, False otherwise."""
     try:
-        run_git(repo, ["rev-parse", "--verify", "--quiet", ref])
+        CIQ_run_git(repo, ["rev-parse", "--verify", "--quiet", ref])
         return True
     except RuntimeError:
         return False
@@ -28,18 +28,13 @@ def ref_exists(repo, ref):
 
 def get_pr_commits(repo, pr_branch, base_branch):
     """Get a list of commit SHAs that are in the PR branch but not in the base branch."""
-    output = run_git(repo, ["rev-list", f"{base_branch}..{pr_branch}"])
+    output = CIQ_run_git(repo, ["rev-list", f"{base_branch}..{pr_branch}"])
     return output.strip().splitlines()
-
-
-def get_commit_message(repo, sha):
-    """Get the commit message for a given commit SHA."""
-    return run_git(repo, ["log", "-n", "1", "--format=%B", sha])
 
 
 def get_short_hash_and_subject(repo, sha):
     """Get the abbreviated commit hash and subject for a given commit SHA."""
-    output = run_git(repo, ["log", "-n", "1", "--format=%h%x00%s", sha]).strip()
+    output = CIQ_run_git(repo, ["log", "-n", "1", "--format=%h%x00%s", sha]).strip()
     short_hash, subject = output.split("\x00", 1)
     return short_hash, subject
 
@@ -48,61 +43,56 @@ def hash_exists_in_mainline(repo, upstream_ref, hash_):
     """
     Return True if hash_ is reachable from upstream_ref (i.e., is an ancestor of it).
     """
-    try:
-        run_git(repo, ["merge-base", "--is-ancestor", hash_, upstream_ref])
-        return True
-    except RuntimeError:
-        return False
+
+    return CIQ_hash_exists_in_ref(repo, upstream_ref, hash_)
 
 
 def find_fixes_in_mainline(repo, pr_branch, upstream_ref, hash_):
     """
-    Return unique commits in upstream_ref that have Fixes: <N chars of hash_> in their message, case-insensitive.
+    Return unique commits in upstream_ref that have Fixes: <N chars of hash_> in their message, case-insensitive,
+    if they have not been commited in the pr_branch.
     Start from 12 chars and work down to 6, but do not include duplicates if already found at a longer length.
     Returns a list of tuples: (full_hash, display_string)
     """
     results = []
-    # Get all commits with 'Fixes:' in the message
-    output = run_git(repo, ["log", upstream_ref, "--grep", "Fixes:", "-i", "--format=%H %h %s (%an)%x0a%B%x00"]).strip()
-    if not output:
-        return []
-    # Each commit is separated by a NUL character and a newline
-    commits = output.split("\x00\x0a")
+
     # Prepare hash prefixes from 12 down to 6
     hash_prefixes = [hash_[:index] for index in range(12, 5, -1)]
+
+    # Get all commits with 'Fixes:' in the message
+    output = CIQ_run_git(
+        repo,
+        [
+            "log",
+            upstream_ref,
+            "--grep",
+            "Fixes:",
+            "-i",
+            "--format=%H %h %s (%an)%x0a%B%x00",
+        ],
+    ).strip()
+    if not output:
+        return []
+
+    # Each commit is separated by a NUL character and a newline
+    commits = output.split("\x00\x0a")
     for commit in commits:
         if not commit.strip():
             continue
-        # The first line is the summary, the rest is the body
+
         lines = commit.splitlines()
-        if not lines:
-            continue
+        # The first line is the summary, the rest is the body
         header = lines[0]
-        full_hash = header.split()[0]
-        # Search for Fixes: lines in the commit message
-        for line in lines[1:]:
-            m = re.match(r"^\s*Fixes:\s*([0-9a-fA-F]{6,40})", line, re.IGNORECASE)
-            if m:
-                for prefix in hash_prefixes:
-                    if m.group(1).lower().startswith(prefix.lower()):
-                        if not commit_exists_in_branch(repo, pr_branch, full_hash):
-                            results.append((full_hash, " ".join(header.split()[1:])))
-                        break
-            else:
-                continue
+        full_hash, display_string = (lambda h: (h[0], " ".join(h[1:])))(header.split())
+        fixes = CIQ_extract_fixes_references_from_commit_body_lines(lines=lines[1:])
+        for fix in fixes:
+            for prefix in hash_prefixes:
+                if fix.lower().startswith(prefix.lower()):
+                    if not CIQ_commit_exists_in_branch(repo, pr_branch, full_hash):
+                        results.append((full_hash, display_string))
+                    break
+
     return results
-
-
-def commit_exists_in_branch(repo, pr_branch, upstream_hash_):
-    """
-    Return True if upstream_hash_ has been backported and it exists in the
-    pr branch
-    """
-    output = run_git(repo, ["log", pr_branch, "--grep", "commit " + upstream_hash_])
-    if not output:
-        return False
-
-    return True
 
 
 def wrap_paragraph(text, width=80, initial_indent="", subsequent_indent=""):
@@ -176,7 +166,7 @@ def main():
         if os.path.exists(vulns_repo):
             # Repository exists, update it with git pull
             try:
-                run_git(vulns_repo, ["pull"])
+                CIQ_run_git(vulns_repo, ["pull"])
             except RuntimeError as e:
                 print(f"WARNING: Failed to update vulns repo: {e}")
                 print("Continuing with existing repository...")
@@ -222,7 +212,7 @@ def main():
     for sha in reversed(pr_commits):  # oldest first
         short_hash, subject = get_short_hash_and_subject(args.repo, sha)
         pr_commit_desc = f"{short_hash} ({subject})"
-        msg = get_commit_message(args.repo, sha)
+        msg = CIQ_get_commit_body(args.repo, sha)
         upstream_hashes = re.findall(r"^commit\s+([0-9a-fA-F]{40})", msg, re.MULTILINE)
         for uhash in upstream_hashes:
             short_uhash = uhash[:12]

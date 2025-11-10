@@ -169,6 +169,143 @@ def CIQ_original_commit_author_to_tag_string(repo_path, sha):
     return "commit-author " + git_auth_res.stdout.decode("utf-8").replace('"', "").strip()
 
 
+def CIQ_run_git(repo_path, args):
+    """
+    Run a git command in the given repository and return its output as a string.
+    """
+    result = subprocess.run(["git", "-C", repo_path] + args, text=True, capture_output=True, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"Git command failed: {' '.join(args)}\n{result.stderr}")
+
+    return result.stdout
+
+
+def CIQ_get_commit_body(repo_path, sha):
+    return CIQ_run_git(repo_path, ["show", "-s", sha, "--format=%B"])
+
+
+def CIQ_extract_fixes_references_from_commit_body_lines(lines):
+    fixes = []
+    for line in lines:
+        m = re.match(r"^\s*Fixes:\s*([0-9a-fA-F]{6,40})", line, re.IGNORECASE)
+        if not m:
+            continue
+
+        fixes.append(m.group(1))
+
+    return fixes
+
+
+def CIQ_fixes_references(repo_path, sha):
+    """
+    If commit message of sha contains lines like
+    Fixes: <short_fixed>, this returns a list of <short_fixed>, otherwise an empty list
+    """
+
+    commit_body = CIQ_get_commit_body(repo_path, sha)
+    return CIQ_extract_fixes_references_from_commit_body_lines(lines=commit_body.splitlines())
+
+
+def CIQ_get_full_hash(repo, short_hash):
+    return CIQ_run_git(repo, ["show", "-s", "--pretty=%H", short_hash]).strip()
+
+
+def CIQ_get_current_branch(repo):
+    return CIQ_run_git(repo, ["branch", "--show-current"]).strip()
+
+
+def CIQ_hash_exists_in_ref(repo, pr_ref, hash_):
+    """
+    Return True is hash_ is reachable from pr_branch
+    """
+
+    try:
+        CIQ_run_git(repo, ["merge-base", "--is-ancestor", hash_, pr_ref])
+        return True
+    except RuntimeError:
+        return False
+
+
+# TODO think of a better name
+def CIQ_commit_exists_in_branch(repo, pr_branch, upstream_hash_):
+    """
+    Return True if upstream_hash_ has been backported and it exists in the pr branch
+    """
+
+    # First check if the commit has been backported by CIQ
+    output = CIQ_run_git(repo, ["log", pr_branch, "--grep", "commit " + upstream_hash_])
+    if output:
+        return True
+
+    # If it was not backported by CIQ, maybe it came from upstream as it is
+    return CIQ_hash_exists_in_ref(repo, pr_branch, upstream_hash_)
+
+
+def CIQ_commit_exists_in_current_branch(repo, upstream_hash_):
+    """
+    Return True if upstream_hash_ has been backported and it exists in the current branch
+    """
+
+    current_branch = CIQ_get_current_branch(repo)
+    full_upstream_hash = CIQ_get_full_hash(repo, upstream_hash_)
+
+    return CIQ_commit_exists_in_branch(repo, current_branch, full_upstream_hash)
+
+
+def CIQ_find_fixes_in_mainline(repo, pr_branch, upstream_ref, hash_):
+    """
+    Return unique commits in upstream_ref that have Fixes: <N chars of hash_> in their message, case-insensitive,
+    if they have not been commited in the pr_branch.
+    Start from 12 chars and work down to 6, but do not include duplicates if already found at a longer length.
+    Returns a list of tuples: (full_hash, display_string)
+    """
+    results = []
+
+    # Prepare hash prefixes from 12 down to 6
+    hash_prefixes = [hash_[:index] for index in range(12, 5, -1)]
+
+    # Get all commits with 'Fixes:' in the message
+    output = CIQ_run_git(
+        repo,
+        [
+            "log",
+            upstream_ref,
+            "--grep",
+            "Fixes:",
+            "-i",
+            "--format=%H %h %s (%an)%x0a%B%x00",
+        ],
+    ).strip()
+    if not output:
+        return []
+
+    # Each commit is separated by a NUL character and a newline
+    commits = output.split("\x00\x0a")
+    for commit in commits:
+        if not commit.strip():
+            continue
+
+        lines = commit.splitlines()
+        # The first line is the summary, the rest is the body
+        header = lines[0]
+        full_hash, display_string = (lambda h: (h[0], " ".join(h[1:])))(header.split())
+        fixes = CIQ_extract_fixes_references_from_commit_body_lines(lines=lines[1:])
+        for fix in fixes:
+            for prefix in hash_prefixes:
+                if fix.lower().startswith(prefix.lower()):
+                    if not CIQ_commit_exists_in_branch(repo, pr_branch, full_hash):
+                        results.append((full_hash, display_string))
+                    break
+
+    return results
+
+
+def CIQ_find_fixes_in_mainline_current_branch(repo, upstream_ref, hash_):
+    current_branch = CIQ_get_current_branch(repo)
+
+    return CIQ_find_fixes_in_mainline(repo, current_branch, upstream_ref, hash_)
+
+
 def repo_init(repo):
     """Initialize a git repo object.
 
