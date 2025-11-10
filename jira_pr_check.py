@@ -196,11 +196,11 @@ def main():
                             vuln_tickets.append(part.upper())
 
                 # Check for CVE line
-                # Assume format: "cve CVE-YYYY-NNNN"
+                # Assume format: "cve CVE-YYYY-NNNN", "cve-bf CVE-YYYY-NNNN", or "cve-pre CVE-YYYY-NNNN"
                 # There will only be one CVE per line, but possibly multiple CVEs listed
-                if stripped.lower().startswith('cve '):
+                if stripped.lower().startswith(('cve ', 'cve-bf ', 'cve-pre ')):
                     parts = stripped.split()
-                    for part in parts[1:]:  # Skip 'cve' keyword/tag
+                    for part in parts[1:]:  # Skip 'cve'/'cve-bf'/'cve-pre' keyword/tag
                         # CVES always start with CVE-
                         if part.upper().startswith('CVE-'):
                             commit_cves.append(part.upper())
