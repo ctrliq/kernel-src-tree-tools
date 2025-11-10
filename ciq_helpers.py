@@ -251,6 +251,60 @@ def CIQ_commit_exists_in_current_branch(repo, upstream_hash_):
     return CIQ_commit_exists_in_branch(repo, current_branch, full_upstream_hash)
 
 
+def CIQ_find_fixes_in_mainline(repo, pr_branch, upstream_ref, hash_):
+    """
+    Return unique commits in upstream_ref that have Fixes: <N chars of hash_> in their message, case-insensitive,
+    if they have not been committed in the pr_branch.
+    Start from 12 chars and work down to 6, but do not include duplicates if already found at a longer length.
+    Returns a list of tuples: (full_hash, display_string)
+    """
+    results = []
+
+    # Prepare hash prefixes from 12 down to 6
+    hash_prefixes = [hash_[:index] for index in range(12, 5, -1)]
+
+    # Get all commits with 'Fixes:' in the message
+    output = CIQ_run_git(
+        repo,
+        [
+            "log",
+            upstream_ref,
+            "--grep",
+            "Fixes:",
+            "-i",
+            "--format=%H %h %s (%an)%x0a%B%x00",
+        ],
+    ).strip()
+    if not output:
+        return []
+
+    # Each commit is separated by a NUL character and a newline
+    commits = output.split("\x00\x0a")
+    for commit in commits:
+        if not commit.strip():
+            continue
+
+        lines = commit.splitlines()
+        # The first line is the summary, the rest is the body
+        header = lines[0]
+        full_hash, display_string = (lambda h: (h[0], " ".join(h[1:])))(header.split())
+        fixes = CIQ_extract_fixes_references_from_commit_body_lines(lines=lines[1:])
+        for fix in fixes:
+            for prefix in hash_prefixes:
+                if fix.lower().startswith(prefix.lower()):
+                    if not CIQ_commit_exists_in_branch(repo, pr_branch, full_hash):
+                        results.append((full_hash, display_string))
+                    break
+
+    return results
+
+
+def CIQ_find_fixes_in_mainline_current_branch(repo, upstream_ref, hash_):
+    current_branch = CIQ_get_current_branch(repo)
+
+    return CIQ_find_fixes_in_mainline(repo, current_branch, upstream_ref, hash_)
+
+
 def repo_init(repo):
     """Initialize a git repo object.
 
