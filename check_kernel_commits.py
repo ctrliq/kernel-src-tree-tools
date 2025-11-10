@@ -11,6 +11,7 @@ from typing import Optional
 from ciq_helpers import (
     CIQ_commit_exists_in_branch,
     CIQ_extract_fixes_references_from_commit_body_lines,
+    CIQ_find_fixes_in_mainline,
     CIQ_get_commit_body,
     CIQ_hash_exists_in_ref,
     CIQ_run_git,
@@ -238,7 +239,7 @@ def main():
                     )
                     out_lines.append("")  # blank line
                 continue
-            fixes = find_fixes_in_mainline(args.repo, args.pr_branch, upstream_ref, uhash)
+            fixes = CIQ_find_fixes_in_mainline(args.repo, args.pr_branch, upstream_ref, uhash)
             if fixes:
                 any_findings = True
 
