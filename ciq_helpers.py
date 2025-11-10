@@ -169,6 +169,88 @@ def CIQ_original_commit_author_to_tag_string(repo_path, sha):
     return "commit-author " + git_auth_res.stdout.decode("utf-8").replace('"', "").strip()
 
 
+def CIQ_run_git(repo_path, args):
+    """
+    Run a git command in the given repository and return its output as a string.
+    """
+    result = subprocess.run(["git", "-C", repo_path] + args, text=True, capture_output=True, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"Git command failed: {' '.join(args)}\n{result.stderr}")
+
+    return result.stdout
+
+
+def CIQ_get_commit_body(repo_path, sha):
+    return CIQ_run_git(repo_path, ["show", "-s", sha, "--format=%B"])
+
+
+def CIQ_extract_fixes_references_from_commit_body_lines(lines):
+    fixes = []
+    for line in lines:
+        m = re.match(r"^\s*Fixes:\s*([0-9a-fA-F]{6,40})", line, re.IGNORECASE)
+        if not m:
+            continue
+
+        fixes.append(m.group(1))
+
+    return fixes
+
+
+def CIQ_fixes_references(repo_path, sha):
+    """
+    If commit message of sha contains lines like
+    Fixes: <short_fixed>, this returns a list of <short_fixed>, otherwise an empty list
+    """
+
+    commit_body = CIQ_get_commit_body(repo_path, sha)
+    return CIQ_extract_fixes_references_from_commit_body_lines(lines=commit_body.splitlines())
+
+
+def CIQ_get_full_hash(repo, short_hash):
+    return CIQ_run_git(repo, ["show", "-s", "--pretty=%H", short_hash]).strip()
+
+
+def CIQ_get_current_branch(repo):
+    return CIQ_run_git(repo, ["branch", "--show-current"]).strip()
+
+
+def CIQ_hash_exists_in_ref(repo, pr_ref, hash_):
+    """
+    Return True if hash_ is reachable from pr_ref
+    """
+
+    try:
+        CIQ_run_git(repo, ["merge-base", "--is-ancestor", hash_, pr_ref])
+        return True
+    except RuntimeError:
+        return False
+
+
+def CIQ_commit_exists_in_branch(repo, pr_branch, upstream_hash_):
+    """
+    Return True if upstream_hash_ has been backported and it exists in the pr branch
+    """
+
+    # First check if the commit has been backported by CIQ
+    output = CIQ_run_git(repo, ["log", pr_branch, "--grep", "^commit " + upstream_hash_])
+    if output:
+        return True
+
+    # If it was not backported by CIQ, maybe it came from upstream as it is
+    return CIQ_hash_exists_in_ref(repo, pr_branch, upstream_hash_)
+
+
+def CIQ_commit_exists_in_current_branch(repo, upstream_hash_):
+    """
+    Return True if upstream_hash_ has been backported and it exists in the current branch
+    """
+
+    current_branch = CIQ_get_current_branch(repo)
+    full_upstream_hash = CIQ_get_full_hash(repo, upstream_hash_)
+
+    return CIQ_commit_exists_in_branch(repo, current_branch, full_upstream_hash)
+
+
 def repo_init(repo):
     """Initialize a git repo object.
 

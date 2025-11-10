@@ -1,14 +1,35 @@
 import argparse
+import logging
 import os
 import subprocess
 
 import git
 
-from ciq_helpers import CIQ_cherry_pick_commit_standardization, CIQ_original_commit_author_to_tag_string
-
-# from ciq_helpers import *
+from ciq_helpers import (
+    CIQ_cherry_pick_commit_standardization,
+    CIQ_commit_exists_in_current_branch,
+    CIQ_fixes_references,
+    CIQ_original_commit_author_to_tag_string,
+)
 
 MERGE_MSG = git.Repo(os.getcwd()).git_dir + "/MERGE_MSG"
+
+
+def check_fixes(sha):
+    """
+    Checks if commit has "Fixes:" references and if so, it checks if the
+    commit(s) that it tries to fix are part of the current branch
+    """
+
+    fixes = CIQ_fixes_references(repo_path=os.getcwd(), sha=sha)
+    if len(fixes) == 0:
+        logging.warning("The commit you try to cherry pick has no Fixes: reference; review it carefully")
+        return
+
+    for fix in fixes:
+        if not CIQ_commit_exists_in_current_branch(os.getcwd(), fix):
+            raise RuntimeError(f"The commit you want to cherry pick references a Fixes: {fix} but this is not here")
+
 
 if __name__ == "__main__":
     print("CIQ custom cherry picker")
@@ -25,6 +46,8 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    logging.basicConfig(level=logging.INFO)
+
     # Expand the provided SHA1 to the full SHA1 in case it's either abbreviated or an expression
     git_sha_res = subprocess.run(["git", "show", "--pretty=%H", "-s", args.sha], stdout=subprocess.PIPE)
     if git_sha_res.returncode != 0:
@@ -38,6 +61,12 @@ if __name__ == "__main__":
     tags = []
     if args.ciq_tag is not None:
         tags = args.ciq_tag.split(",")
+
+    try:
+        check_fixes(args.sha)
+    except Exception as e:
+        print(e)
+        exit(1)
 
     author = CIQ_original_commit_author_to_tag_string(repo_path=os.getcwd(), sha=args.sha)
     if author is None:
