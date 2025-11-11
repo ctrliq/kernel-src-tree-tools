@@ -63,8 +63,6 @@ def cherry_pick(sha, ciq_tags, jira_ticket):
     new_msg = CIQ_cherry_pick_commit_standardization(original_msg, full_sha, jira=jira_ticket, tags=ciq_tags)
 
     print(f"Cherry Pick New Message for {args.sha}")
-    for line in new_msg:
-        print(line.strip("\n"))
     print(f"\n Original Message located here: {MERGE_MSG}.bak")
 
     with open(MERGE_MSG, "w") as file:
