@@ -64,12 +64,34 @@ CIQ_CONFIG_PATH=ciq/configs
 
 CONFIG_LIST=$(ls ${CIQ_CONFIG_PATH}/*.config)
 
+# scripts/dummy-tools doesn't normalize the rustc
+# version.  So create a quick dummy rustc script
+# to report the same version as our current normalized
+# config and pass that to make as RUSTC
+
+# Create a temporary directory for the dummy rustc
+TMPDIR=$(mktemp -d)
+
+# Create the dummy rustc that always reports the same version
+cat > "$TMPDIR/rustc" << 'EOF'
+#!/bin/sh
+case "$1" in
+    --version|-vV)
+        echo "rustc 1.76.0"
+        echo "LLVM version: 17.0.6"
+        ;;
+    *)
+        ;;
+esac
+EOF
+chmod +x "$TMPDIR/rustc"
+
 for config in $CONFIG_LIST; do
     echo "Rebasing $config"
     if [[ $config == *"x86_64"* ]]; then
 	echo "Rebasing x86_64 config"
 	cp $config .config
-	make ARCH=x86_64  CROSS_COMPILE=scripts/dummy-tools/ olddefconfig
+	make ARCH=x86_64  CROSS_COMPILE=scripts/dummy-tools/ RUSTC=$TMPDIR/rustc olddefconfig
 	CONFIG_DIFF=$(diff --ignore-matching-lines='^# Linux/x86_64' .config $config | wc -l)
 	if [ $CONFIG_DIFF -eq 0 ]; then
 	    echo "No changes to x86_64 config"
@@ -81,7 +103,7 @@ for config in $CONFIG_LIST; do
     elif [[ $config == *"aarch64"* ]]; then
 	echo "Rebaseing aarch64 config"
 	cp $config .config
-	make ARCH=arm64 CROSS_COMPILE=scripts/dummy-tools/ olddefconfig
+	make ARCH=arm64 CROSS_COMPILE=scripts/dummy-tools/ RUSTC="$TMPDIR/rustc" olddefconfig
 	CONFIG_DIFF=$(diff --ignore-matching-lines='^# Linux/arm64' .config $config | wc -l)
 	if [ $CONFIG_DIFF -eq 0 ]; then
 	    echo "No changes to aarch64 config"
@@ -95,6 +117,8 @@ for config in $CONFIG_LIST; do
 	exit 1
     fi
 done
+
+rm -rf $TMPDIR
 
 REPO_STATUS=$(git status -s)
 if [ ! -z "$REPO_STATUS" ]; then
