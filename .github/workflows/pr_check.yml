@@ -1,0 +1,17 @@
+name: PR Pre Checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - mainline
+
+jobs:
+  pre-commit-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          pre-commit install
+          pre-commit run --all-files
