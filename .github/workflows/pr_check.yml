@@ -1,0 +1,38 @@
+name: PR Pre Checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - mainline
+
+jobs:
+  pre-commit-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Create Python Venv
+        run: |
+          python -m venv venv
+          source venv/bin/activate
+          echo "VIRTUAL_ENV=$VIRTUAL_ENV" >> $GITHUB_ENV
+          echo "$VIRTUAL_ENV/bin" >> $GITHUB_PATH
+
+      - name: Install Python deps
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pip list
+
+      - name: Lint
+        run: |
+          pre-commit install
+          pre-commit run --all-files --show-diff-on-failure --verbose --color=always
