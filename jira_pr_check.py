@@ -5,23 +5,22 @@ import os
 import re
 import subprocess
 import sys
-from jira import JIRA
-from release_config import release_map, jira_field_map
 
-CVE_PATTERN = r'CVE-\d{4}-\d{4,7}'
+from jira import JIRA
+
+from release_config import jira_field_map, release_map
+
+CVE_PATTERN = r"CVE-\d{4}-\d{4,7}"
 
 # Reverse lookup: field name -> custom field ID
 jira_field_reverse = {v: k for k, v in jira_field_map.items()}
+
 
 def restore_git_branch(original_branch, kernel_src_tree):
     """Restore the original git branch in case of errors."""
     try:
         subprocess.run(
-            ["git", "checkout", original_branch],
-            cwd=kernel_src_tree,
-            check=True,
-            capture_output=True,
-            text=True
+            ["git", "checkout", original_branch], cwd=kernel_src_tree, check=True, capture_output=True, text=True
         )
     except subprocess.CalledProcessError as e:
         print(f"ERROR: Failed to restore original branch {original_branch}: {e.stderr}")
@@ -31,7 +30,7 @@ def restore_git_branch(original_branch, kernel_src_tree):
 def main():
     parser = argparse.ArgumentParser(
         description="Validate PR Commits against JIRA VULN Tickets",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     # This is a necessary requirement at the moment to allow multiple different JIRA creds from the same user
     parser.add_argument(
@@ -73,9 +72,9 @@ def main():
         print(f"ERROR: Kernel source tree path does not exist: {args.kernel_src_tree}")
         sys.exit(1)
 
-    jira_url = args.jira_url or os.environ.get('JIRA_URL')
-    jira_user = args.jira_user or os.environ.get('JIRA_API_USER')
-    jira_key = args.jira_key or os.environ.get('JIRA_API_TOKEN')
+    jira_url = args.jira_url or os.environ.get("JIRA_URL")
+    jira_user = args.jira_user or os.environ.get("JIRA_API_USER")
+    jira_key = args.jira_key or os.environ.get("JIRA_API_TOKEN")
 
     if not all([jira_url, jira_user, jira_key]):
         print("ERROR: JIRA credentials not provided. Set via --jira-* args or environment variables.")
@@ -92,9 +91,7 @@ def main():
     try:
         # Get current branch to restore later
         result = subprocess.run(
-            ["git", "branch", "--show-current"],
-            cwd=args.kernel_src_tree,
-            check=True, capture_output=True, text=True
+            ["git", "branch", "--show-current"], cwd=args.kernel_src_tree, check=True, capture_output=True, text=True
         )
         original_branch = result.stdout.strip()
     except subprocess.CalledProcessError as e:
@@ -104,11 +101,7 @@ def main():
     # Checkout the merge target branch first to ensure it exists
     try:
         subprocess.run(
-            ["git", "checkout", args.merge_target],
-            cwd=args.kernel_src_tree,
-            check=True,
-            capture_output=True,
-            text=True
+            ["git", "checkout", args.merge_target], cwd=args.kernel_src_tree, check=True, capture_output=True, text=True
         )
     except subprocess.CalledProcessError as e:
         print(f"ERROR: Failed to checkout merge target branch {args.merge_target}: {e.stderr}")
@@ -119,11 +112,7 @@ def main():
     # Checkout the PR branch
     try:
         subprocess.run(
-            ["git", "checkout", args.pr_branch],
-            cwd=args.kernel_src_tree,
-            check=True,
-            capture_output=True,
-            text=True
+            ["git", "checkout", args.pr_branch], cwd=args.kernel_src_tree, check=True, capture_output=True, text=True
         )
     except subprocess.CalledProcessError as e:
         print(f"ERROR: Failed to checkout PR branch {args.pr_branch}: {e.stderr}")
@@ -137,13 +126,13 @@ def main():
             cwd=args.kernel_src_tree,
             check=True,
             capture_output=True,
-            text=True
+            text=True,
         )
     except subprocess.CalledProcessError as e:
         print(f"ERROR: failed to get commits: {e.stderr}")
         sys.exit(1)
 
-    commit_shas = result.stdout.strip().split('\n') if result.stdout.strip() else []
+    commit_shas = result.stdout.strip().split("\n") if result.stdout.strip() else []
 
     # Parse each commit and extract header
     commits_data = []
@@ -158,14 +147,14 @@ def main():
                 cwd=args.kernel_src_tree,
                 check=True,
                 capture_output=True,
-                text=True
+                text=True,
             )
         except subprocess.CalledProcessError as e:
             print(f"ERROR: Failed to get commits: {e.stderr}")
             sys.exit(1)
 
         commit_msg = result.stdout.strip()
-        lines = commit_msg.split('\n')
+        lines = commit_msg.split("\n")
 
         # Extract summary line (first line)
         summary = lines[0] if lines else ""
@@ -189,23 +178,23 @@ def main():
                 stripped = line.strip()
 
                 # Check for jira line with VULN
-                if stripped.lower().startswith('jira ') and 'vuln-' in stripped.lower():
+                if stripped.lower().startswith("jira ") and "vuln-" in stripped.lower():
                     parts = stripped.split()
                     for part in parts[1:]:  # Skip 'jira' keyword
-                        if part.upper().startswith('VULN-'):
+                        if part.upper().startswith("VULN-"):
                             vuln_tickets.append(part.upper())
 
                 # Check for CVE line
                 # Assume format: "cve CVE-YYYY-NNNN", "cve-bf CVE-YYYY-NNNN", or "cve-pre CVE-YYYY-NNNN"
                 # There will only be one CVE per line, but possibly multiple CVEs listed
-                if stripped.lower().startswith(('cve ', 'cve-bf ', 'cve-pre ')):
+                if stripped.lower().startswith(("cve ", "cve-bf ", "cve-pre ")):
                     parts = stripped.split()
                     for part in parts[1:]:  # Skip 'cve'/'cve-bf'/'cve-pre' keyword/tag
                         # CVES always start with CVE-
-                        if part.upper().startswith('CVE-'):
+                        if part.upper().startswith("CVE-"):
                             commit_cves.append(part.upper())
 
-        header = '\n'.join(header_lines)
+        header = "\n".join(header_lines)
 
         # Check VULN tickets against merge target
         lts_match = None
@@ -218,7 +207,7 @@ def main():
 
                     # Get LTS product
                     lts_product_field = issue.get_field(jira_field_reverse["LTS Product"])
-                    if hasattr(lts_product_field, 'value'):
+                    if hasattr(lts_product_field, "value"):
                         lts_product = lts_product_field.value
                     else:
                         lts_product = str(lts_product_field) if lts_product_field else None
@@ -248,48 +237,60 @@ def main():
                         commit_cves_set = set(commit_cves)
                         if not commit_cves_set.issubset(ticket_cves):
                             missing_in_ticket = commit_cves_set - ticket_cves
-                            issues_list.append({
-                                'type': 'error',
-                                'vuln_id': vuln_id,
-                                'message': f"CVE mismatch - Commit has {', '.join(sorted(missing_in_ticket))} but VULN ticket does not"
-                            })
+                            issues_list.append(
+                                {
+                                    "type": "error",
+                                    "vuln_id": vuln_id,
+                                    "message": f"CVE mismatch - Commit has {', '.join(sorted(missing_in_ticket))} but VULN ticket does not",
+                                }
+                            )
                         if not ticket_cves.issubset(commit_cves_set):
                             missing_in_commit = ticket_cves - commit_cves_set
-                            issues_list.append({
-                                'type': 'warning',
-                                'vuln_id': vuln_id,
-                                'message': f"VULN ticket has {', '.join(sorted(missing_in_commit))} but commit does not"
-                            })
+                            issues_list.append(
+                                {
+                                    "type": "warning",
+                                    "vuln_id": vuln_id,
+                                    "message": f"VULN ticket has {', '.join(sorted(missing_in_commit))} but commit does not",
+                                }
+                            )
                     elif commit_cves and not ticket_cves:
-                        issues_list.append({
-                            'type': 'warning',
-                            'vuln_id': vuln_id,
-                            'message': f"Commit has CVEs {', '.join(sorted(commit_cves))} but VULN ticket has no CVEs"
-                        })
+                        issues_list.append(
+                            {
+                                "type": "warning",
+                                "vuln_id": vuln_id,
+                                "message": f"Commit has CVEs {', '.join(sorted(commit_cves))} but VULN ticket has no CVEs",
+                            }
+                        )
                     elif ticket_cves and not commit_cves:
-                        issues_list.append({
-                            'type': 'warning',
-                            'vuln_id': vuln_id,
-                            'message': f"VULN ticket has CVEs {', '.join(sorted(ticket_cves))} but commit has no CVEs"
-                        })
+                        issues_list.append(
+                            {
+                                "type": "warning",
+                                "vuln_id": vuln_id,
+                                "message": f"VULN ticket has CVEs {', '.join(sorted(ticket_cves))} but commit has no CVEs",
+                            }
+                        )
 
                     # Check ticket status
                     status = issue.fields.status.name
                     if status != "In Progress":
-                        issues_list.append({
-                            'type': 'error',
-                            'vuln_id': vuln_id,
-                            'message': f"Status is '{status}', expected 'In Progress'"
-                        })
+                        issues_list.append(
+                            {
+                                "type": "error",
+                                "vuln_id": vuln_id,
+                                "message": f"Status is '{status}', expected 'In Progress'",
+                            }
+                        )
 
                     # Check if time is logged
                     time_spent = issue.fields.timespent
                     if not time_spent or time_spent == 0:
-                        issues_list.append({
-                            'type': 'warning',
-                            'vuln_id': vuln_id,
-                            'message': 'No time logged - please log time manually'
-                        })
+                        issues_list.append(
+                            {
+                                "type": "warning",
+                                "vuln_id": vuln_id,
+                                "message": "No time logged - please log time manually",
+                            }
+                        )
 
                     # Check if LTS product matches merge target branch
                     if lts_product and lts_product in release_map:
@@ -298,39 +299,43 @@ def main():
                             lts_match = True
                         else:
                             lts_match = False
-                            issues_list.append({
-                                'type': 'error',
-                                'vuln_id': vuln_id,
-                                'message': f"LTS product '{lts_product}' expects branch '{expected_branch}', but merge target is '{args.merge_target}'"
-                            })
+                            issues_list.append(
+                                {
+                                    "type": "error",
+                                    "vuln_id": vuln_id,
+                                    "message": f"LTS product '{lts_product}' expects branch '{expected_branch}', but merge target is '{args.merge_target}'",
+                                }
+                            )
                     else:
-                        issues_list.append({
-                            'type': 'error',
-                            'vuln_id': vuln_id,
-                            'message': f"LTS product '{lts_product}' not found in release_map"
-                        })
+                        issues_list.append(
+                            {
+                                "type": "error",
+                                "vuln_id": vuln_id,
+                                "message": f"LTS product '{lts_product}' not found in release_map",
+                            }
+                        )
 
                 except Exception as e:
-                    issues_list.append({
-                        'type': 'error',
-                        'vuln_id': vuln_id,
-                        'message': f"Failed to retrieve ticket: {e}"
-                    })
+                    issues_list.append(
+                        {"type": "error", "vuln_id": vuln_id, "message": f"Failed to retrieve ticket: {e}"}
+                    )
 
-        commits_data.append({
-            'sha': sha,
-            'summary': summary,
-            'header': header,
-            'full_message': commit_msg,
-            'vuln_tickets': vuln_tickets,
-            'lts_match': lts_match,
-            'issues': issues_list
-        })
+        commits_data.append(
+            {
+                "sha": sha,
+                "summary": summary,
+                "header": header,
+                "full_message": commit_msg,
+                "vuln_tickets": vuln_tickets,
+                "lts_match": lts_match,
+                "issues": issues_list,
+            }
+        )
 
     # Print formatted results
     print("\n## JIRA PR Check Results\n")
 
-    commits_with_issues = [c for c in commits_data if c['issues']]
+    commits_with_issues = [c for c in commits_data if c["issues"]]
     has_errors = False
 
     if commits_with_issues:
@@ -341,8 +346,8 @@ def main():
             print(f"**Summary:** {commit['summary']}\n")
 
             # Group issues by type
-            errors = [i for i in commit['issues'] if i['type'] == 'error']
-            warnings = [i for i in commit['issues'] if i['type'] == 'warning']
+            errors = [i for i in commit["issues"] if i["type"] == "error"]
+            warnings = [i for i in commit["issues"] if i["type"] == "warning"]
 
             if errors:
                 has_errors = True
@@ -370,7 +375,6 @@ def main():
     restore_git_branch(original_branch, kernel_src_tree=args.kernel_src_tree)
 
     return jira, commits_data
-
 
 
 if __name__ == "__main__":
