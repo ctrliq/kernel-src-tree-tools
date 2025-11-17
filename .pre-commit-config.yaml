@@ -11,6 +11,5 @@ repos:
 
 exclude: |
   (?x)^(
-  rolling-release-update.py |
   run_interdiff.py |
   )$
