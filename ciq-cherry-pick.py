@@ -37,7 +37,7 @@ def check_fixes(sha):
             raise RuntimeError(f"The commit you want to cherry pick references a Fixes: {fix} but this is not here")
 
 
-def manage_commit_message(full_sha, ciq_tags, jira_ticket):
+def manage_commit_message(full_sha, ciq_tags, jira_ticket, commit_successful):
     """
     Standardize the commit message by including the ciq_tags, original
     author and the original commit full sha.
@@ -61,7 +61,10 @@ def manage_commit_message(full_sha, ciq_tags, jira_ticket):
     with open(MERGE_MSG, "r") as file:
         original_msg = file.readlines()
 
-    new_msg = CIQ_cherry_pick_commit_standardization(original_msg, full_sha, jira=jira_ticket, tags=ciq_tags)
+    optional_msg = "" if commit_successful else "upstream-diff |"
+    new_msg = CIQ_cherry_pick_commit_standardization(
+        original_msg, full_sha, jira=jira_ticket, tags=new_tags, optional_msg=optional_msg
+    )
 
     print(f"Cherry Pick New Message for {full_sha}")
     print(f"\n Original Message located here: {MERGE_MSG_BAK}")
@@ -76,7 +79,7 @@ def cherry_pick(sha, ciq_tags, jira_ticket):
     In case of error (cherry pick conflict):
         - MERGE_MSG.bak contains the original commit message
         - MERGE_MSG contains the standardized commit message
-        - Conflict has to be solved manualy
+        - Conflict has to be solved manually
 
     In case of success:
         - the commit is cherry picked
@@ -91,12 +94,15 @@ def cherry_pick(sha, ciq_tags, jira_ticket):
 
     # Commit message is in MERGE_MSG
     git_res = subprocess.run(["git", "cherry-pick", "-nsx", full_sha])
-    manage_commit_message(full_sha=full_sha, ciq_tags=ciq_tags, jira_ticket=jira_ticket)
+    commit_successful = git_res.returncode == 0
+    manage_commit_message(
+        full_sha=full_sha, ciq_tags=ciq_tags, jira_ticket=jira_ticket, commit_successful=commit_successful
+    )
 
-    if git_res.returncode != 0:
+    if not commit_successful:
         error_str = (
             f"[FAILED] git cherry-pick -nsx {full_sha}\n"
-            "Manually resolve conflict and include `upstream-diff` tag in commit message\n"
+            "Manually resolve conflict and add explanation under `upstream-diff` tag in commit message\n"
             f"Subprocess Call: {git_res}"
         )
         raise RuntimeError(error_str)
