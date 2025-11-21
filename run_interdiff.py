@@ -1,71 +1,78 @@
 #!/usr/bin/env python3
 
 import argparse
-import subprocess
-import re
-import sys
 import os
+import re
+import subprocess
+import sys
 import tempfile
+
 
 def run_git(repo, args):
     """Run a git command in the given repository and return its output as a string."""
-    result = subprocess.run(['git', '-C', repo] + args, text=True, capture_output=True, check=False)
+    result = subprocess.run(["git", "-C", repo] + args, text=True, capture_output=True, check=False)
     if result.returncode != 0:
         raise RuntimeError(f"Git command failed: {' '.join(args)}\n{result.stderr}")
     return result.stdout
 
+
 def ref_exists(repo, ref):
     """Return True if the given ref exists in the repository, False otherwise."""
     try:
-        run_git(repo, ['rev-parse', '--verify', '--quiet', ref])
+        run_git(repo, ["rev-parse", "--verify", "--quiet", ref])
         return True
     except RuntimeError:
         return False
 
+
 def get_pr_commits(repo, pr_branch, base_branch):
     """Get a list of commit SHAs that are in the PR branch but not in the base branch."""
     try:
-        output = run_git(repo, ['rev-list', f'{base_branch}..{pr_branch}'])
+        output = run_git(repo, ["rev-list", f"{base_branch}..{pr_branch}"])
         return output.strip().splitlines()
     except RuntimeError as e:
         raise RuntimeError(f"Failed to get commits from {base_branch}..{pr_branch}: {e}")
 
+
 def get_commit_message(repo, sha):
     """Get the commit message for a given commit SHA."""
     try:
-        return run_git(repo, ['log', '-n', '1', '--format=%B', sha])
+        return run_git(repo, ["log", "-n", "1", "--format=%B", sha])
     except RuntimeError as e:
         raise RuntimeError(f"Failed to get commit message for {sha}: {e}")
+
 
 def get_short_hash_and_subject(repo, sha):
     """Get the abbreviated commit hash and subject for a given commit SHA."""
     try:
-        output = run_git(repo, ['log', '-n', '1', '--format=%h%x00%s', sha]).strip()
-        short_hash, subject = output.split('\x00', 1)
+        output = run_git(repo, ["log", "-n", "1", "--format=%h%x00%s", sha]).strip()
+        short_hash, subject = output.split("\x00", 1)
         return short_hash, subject
     except RuntimeError as e:
         raise RuntimeError(f"Failed to get short hash and subject for {sha}: {e}")
 
+
 def extract_upstream_hash(msg):
     """Extract the upstream commit hash from a commit message.
     Looks for lines like 'commit <hash>' in the commit message."""
-    match = re.search(r'^commit\s+([0-9a-fA-F]{12,40})', msg, re.MULTILINE)
+    match = re.search(r"^commit\s+([0-9a-fA-F]{12,40})", msg, re.MULTILINE)
     if match:
         return match.group(1)
     return None
+
 
 def run_interdiff(repo, backport_sha, upstream_sha, interdiff_path):
     """Run interdiff comparing the backport commit with the upstream commit.
     Returns (success, output) tuple."""
     # Generate format-patch for backport commit
     try:
-        backport_patch = run_git(repo, ['format-patch', '-1', '--stdout', backport_sha])
+        backport_patch = run_git(repo, ["format-patch", "-1", "--stdout", backport_sha])
     except RuntimeError as e:
         return False, f"Failed to generate patch for backport commit: {e}"
 
     # Generate format-patch for upstream commit
     try:
-        upstream_patch = run_git(repo, ['format-patch', '-1', '--stdout', upstream_sha])
+        upstream_patch = run_git(repo, ["format-patch", "-1", "--stdout", upstream_sha])
     except RuntimeError as e:
         return False, f"Failed to generate patch for upstream commit: {e}"
 
@@ -73,19 +80,16 @@ def run_interdiff(repo, backport_sha, upstream_sha, interdiff_path):
     bp_path = None
     up_path = None
     try:
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.patch', delete=False) as bp:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".patch", delete=False) as bp:
             bp.write(backport_patch)
             bp_path = bp.name
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.patch', delete=False) as up:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".patch", delete=False) as up:
             up.write(upstream_patch)
             up_path = up.name
 
         interdiff_result = subprocess.run(
-            [interdiff_path, '--fuzzy=3', bp_path, up_path],
-            text=True,
-            capture_output=True,
-            check=False
+            [interdiff_path, "--fuzzy=3", bp_path, up_path], text=True, capture_output=True, check=False
         )
 
         # Check for interdiff errors (non-zero return code other than 1)
@@ -107,21 +111,21 @@ def run_interdiff(repo, backport_sha, upstream_sha, interdiff_path):
         if up_path and os.path.exists(up_path):
             os.unlink(up_path)
 
+
 def find_interdiff():
     """Find interdiff in system PATH. Returns path if found, None otherwise."""
-    result = subprocess.run(['which', 'interdiff'], capture_output=True, text=True, check=False)
+    result = subprocess.run(["which", "interdiff"], capture_output=True, text=True, check=False)
     if result.returncode == 0:
         return result.stdout.strip()
     return None
 
+
 def main():
-    parser = argparse.ArgumentParser(
-        description="Run interdiff on backported kernel commits to compare with upstream."
-    )
+    parser = argparse.ArgumentParser(description="Run interdiff on backported kernel commits to compare with upstream.")
     parser.add_argument("--repo", help="Path to the Linux kernel git repo", required=True)
     parser.add_argument("--pr_branch", help="Git reference to the feature branch", required=True)
     parser.add_argument("--base_branch", help="Branch the feature branch is based off of", required=True)
-    parser.add_argument("--markdown", action='store_true', help="Format output with markdown")
+    parser.add_argument("--markdown", action="store_true", help="Format output with markdown")
     parser.add_argument("--interdiff", help="Path to interdiff executable (default: system interdiff)", default=None)
     args = parser.parse_args()
 
@@ -145,8 +149,7 @@ def main():
 
     # Validate that all required refs exist
     missing_refs = []
-    for refname, refval in [('PR branch', args.pr_branch),
-                            ('base branch', args.base_branch)]:
+    for refname, refval in [("PR branch", args.pr_branch), ("base branch", args.base_branch)]:
         if not ref_exists(args.repo, refval):
             missing_refs.append((refname, refval))
 
@@ -210,7 +213,7 @@ def main():
             any_differences = True
             if args.markdown:
                 out_lines.append(f"- ⚠️ PR commit `{pr_commit_desc}` → upstream `{upstream_hash[:12]}`")
-                out_lines.append(f"  **Differences found:**\n")
+                out_lines.append("  **Differences found:**\n")
                 out_lines.append("```diff")
                 out_lines.append(output)
                 out_lines.append("```\n")
@@ -226,15 +229,16 @@ def main():
     if any_differences:
         if args.markdown:
             print("## :mag: Interdiff Analysis\n")
-            print('\n'.join(out_lines))
+            print("\n".join(out_lines))
             print("*This is an automated interdiff check for backported commits.*")
         else:
-            print('\n'.join(out_lines))
+            print("\n".join(out_lines))
     else:
         if args.markdown:
             print("> ✅ **All backported commits match their upstream counterparts.**")
         else:
             print("All backported commits match their upstream counterparts.")
+
 
 if __name__ == "__main__":
     main()
