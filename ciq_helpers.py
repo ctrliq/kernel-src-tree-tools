@@ -305,6 +305,10 @@ def CIQ_find_fixes_in_mainline_current_branch(repo, upstream_ref, hash_):
     return CIQ_find_fixes_in_mainline(repo, current_branch, upstream_ref, hash_)
 
 
+def CIQ_reset_HEAD(repo):
+    return CIQ_run_git(repo_path=repo, args=["reset", "--hard", "HEAD"])
+
+
 def repo_init(repo):
     """Initialize a git repo object.
 
