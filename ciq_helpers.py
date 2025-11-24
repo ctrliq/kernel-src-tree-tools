@@ -3,6 +3,7 @@
 
 # CIQ Kernel Tools  function library
 
+import logging
 import os
 import re
 import subprocess
@@ -307,6 +308,16 @@ def CIQ_find_fixes_in_mainline_current_branch(repo, upstream_ref, hash_):
 
 def CIQ_reset_HEAD(repo):
     return CIQ_run_git(repo_path=repo, args=["reset", "--hard", "HEAD"])
+
+
+def CIQ_raise_or_warn(cond, error_msg, warn):
+    if not cond:
+        return
+
+    if not warn:
+        raise RuntimeError(error_msg)
+
+    logging.warning(error_msg)
 
 
 def repo_init(repo):

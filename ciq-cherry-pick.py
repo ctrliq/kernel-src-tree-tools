@@ -15,6 +15,7 @@ from ciq_helpers import (
     CIQ_fixes_references,
     CIQ_get_full_hash,
     CIQ_original_commit_author_to_tag_string,
+    CIQ_raise_or_warn,
     CIQ_reset_HEAD,
     CIQ_run_git,
 )
@@ -27,7 +28,7 @@ class CherryPickException(Exception):
     pass
 
 
-def check_fixes(sha):
+def check_fixes(sha, ignore_fixes_check):
     """
     Checks if commit has "Fixes:" references and if so, it checks if the
     commit(s) that it tries to fix are part of the current branch
@@ -38,9 +39,13 @@ def check_fixes(sha):
         logging.warning("The commit you try to cherry pick has no Fixes: reference; review it carefully")
         return
 
+    not_present_fixes = []
     for fix in fixes:
         if not CIQ_commit_exists_in_current_branch(os.getcwd(), fix):
-            raise RuntimeError(f"The commit you want to cherry pick references a Fixes: {fix} but this is not here")
+            not_present_fixes.append(fix)
+
+    err = f"The commit you want to cherry pick has the following Fixes: references that are not part of the tree {not_present_fixes}"
+    CIQ_raise_or_warn(cond=not_present_fixes, error_msg=err, warn=ignore_fixes_check)
 
 
 def manage_commit_message(full_sha, ciq_tags, jira_ticket, commit_successful):
@@ -85,7 +90,7 @@ def manage_commit_message(full_sha, ciq_tags, jira_ticket, commit_successful):
         raise RuntimeError(f"Failed to write commit message to {MERGE_MSG}: {e}") from e
 
 
-def cherry_pick(sha, ciq_tags, jira_ticket):
+def cherry_pick(sha, ciq_tags, jira_ticket, ignore_fixes_check):
     """
     Cherry picks a commit and it adds the ciq standardized format
     In case of error (cherry pick conflict):
@@ -107,7 +112,7 @@ def cherry_pick(sha, ciq_tags, jira_ticket):
     except RuntimeError as e:
         raise RuntimeError(f"Invalid commit SHA {sha}: {e}") from e
 
-    check_fixes(sha=full_sha)
+    check_fixes(sha=full_sha, ignore_fixes_check=ignore_fixes_check)
 
     # Commit message is in MERGE_MSG
     commit_successful = True
@@ -134,7 +139,7 @@ def cherry_pick(sha, ciq_tags, jira_ticket):
     CIQ_run_git(repo_path=os.getcwd(), args=["commit", "-F", MERGE_MSG])
 
 
-def cherry_pick_fixes(sha, ciq_tags, jira_ticket, upstream_ref):
+def cherry_pick_fixes(sha, ciq_tags, jira_ticket, upstream_ref, ignore_fixes_check):
     """
     Check upstream_ref for commits that have this reference:
     Fixes: <sha>. If any, these will also be cherry picked with the ciq
@@ -147,10 +152,16 @@ def cherry_pick_fixes(sha, ciq_tags, jira_ticket, upstream_ref):
     bf_ciq_tags = [re.sub(r"^cve ", "cve-bf ", tag.strip()) for tag in ciq_tags]
     for full_hash, display_str in fixes_in_mainline:
         print(f"Extra cherry picking {display_str}")
-        full_cherry_pick(sha=full_hash, ciq_tags=bf_ciq_tags, jira_ticket=jira_ticket, upstream_ref=upstream_ref)
+        full_cherry_pick(
+            sha=full_hash,
+            ciq_tags=bf_ciq_tags,
+            jira_ticket=jira_ticket,
+            upstream_ref=upstream_ref,
+            ignore_fixes_check=ignore_fixes_check,
+        )
 
 
-def full_cherry_pick(sha, ciq_tags, jira_ticket, upstream_ref):
+def full_cherry_pick(sha, ciq_tags, jira_ticket, upstream_ref, ignore_fixes_check):
     """
     Cherry picks a commit from upstream-ref along with its Fixes: references.
     If cherry-pick or cherry_pick_fixes fail, the exception is propagated
@@ -158,10 +169,16 @@ def full_cherry_pick(sha, ciq_tags, jira_ticket, upstream_ref):
     successful cherry picks are left as they are.
     """
     # Cherry pick the commit
-    cherry_pick(sha=sha, ciq_tags=ciq_tags, jira_ticket=jira_ticket)
+    cherry_pick(sha=sha, ciq_tags=ciq_tags, jira_ticket=jira_ticket, ignore_fixes_check=ignore_fixes_check)
 
     # Cherry pick the fixed-by dependencies
-    cherry_pick_fixes(sha=sha, ciq_tags=ciq_tags, jira_ticket=jira_ticket, upstream_ref=upstream_ref)
+    cherry_pick_fixes(
+        sha=sha,
+        ciq_tags=ciq_tags,
+        jira_ticket=jira_ticket,
+        upstream_ref=upstream_ref,
+        ignore_fixes_check=ignore_fixes_check,
+    )
 
 
 if __name__ == "__main__":
@@ -185,6 +202,11 @@ if __name__ == "__main__":
         default="origin/kernel-mainline",
         help="Reference to upstream mainline branch (default: origin/kernel-mainline)",
     )
+    parser.add_argument(
+        "--ignore-fixes-check",
+        action="store_true",
+        help="Continue even if the commit(s) referenced in Fixes: tags are not present in the current branch",
+    )
 
     args = parser.parse_args()
 
@@ -203,7 +225,13 @@ if __name__ == "__main__":
         tags = args.ciq_tag.split(",")
 
     try:
-        full_cherry_pick(sha=args.sha, ciq_tags=tags, jira_ticket=args.ticket, upstream_ref=args.upstream_ref)
+        full_cherry_pick(
+            sha=args.sha,
+            ciq_tags=tags,
+            jira_ticket=args.ticket,
+            upstream_ref=args.upstream_ref,
+            ignore_fixes_check=args.ignore_fixes_check,
+        )
     except CherryPickException as e:
         logging.error(e)
         sys.exit(1)
