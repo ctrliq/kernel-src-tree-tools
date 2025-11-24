@@ -142,7 +142,7 @@ def full_cherry_pick(sha, ciq_tags, jira_ticket, upstream_ref):
 if __name__ == "__main__":
     print("CIQ custom cherry picker")
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument("--sha", help="Target SHA1 to cherry-pick")
+    parser.add_argument("--sha", help="Target SHA1 to cherry-pick", required=True)
     parser.add_argument("--ticket", help="Ticket associated to cherry-pick work, comma separated list is supported.")
     parser.add_argument(
         "--ciq-tag",
