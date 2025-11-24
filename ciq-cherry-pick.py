@@ -93,8 +93,12 @@ def cherry_pick(sha, ciq_tags, jira_ticket):
     check_fixes(sha=full_sha)
 
     # Commit message is in MERGE_MSG
-    git_res = subprocess.run(["git", "cherry-pick", "-nsx", full_sha])
-    commit_successful = git_res.returncode == 0
+    commit_successful = True
+    try:
+        CIQ_run_git(repo_path=os.getcwd(), args=["cherry-pick", "-nsx", full_sha])
+    except RuntimeError:
+        commit_successful = False
+
     manage_commit_message(
         full_sha=full_sha, ciq_tags=ciq_tags, jira_ticket=jira_ticket, commit_successful=commit_successful
     )
@@ -103,7 +107,6 @@ def cherry_pick(sha, ciq_tags, jira_ticket):
         error_str = (
             f"[FAILED] git cherry-pick -nsx {full_sha}\n"
             "Manually resolve conflict and add explanation under `upstream-diff` tag in commit message\n"
-            f"Subprocess Call: {git_res}"
         )
         raise RuntimeError(error_str)
 
