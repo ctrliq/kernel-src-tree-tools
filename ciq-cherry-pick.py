@@ -13,7 +13,7 @@ MERGE_MSG = git.Repo(os.getcwd()).git_dir + "/MERGE_MSG"
 if __name__ == "__main__":
     print("CIQ custom cherry picker")
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument("--sha", help="Target SHA1 to cherry-pick")
+    parser.add_argument("--sha", help="Target SHA1 to cherry-pick", required=True)
     parser.add_argument("--ticket", help="Ticket associated to cherry-pick work, comma separated list is supported.")
     parser.add_argument(
         "--ciq-tag",
