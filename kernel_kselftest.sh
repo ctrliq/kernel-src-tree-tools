@@ -28,13 +28,21 @@ install_kselftest_deps_8() {
     alsa-lib-devel \
     bc \
     clang \
+    conntrack-tools \
     curl \
     dropwatch \
     dwarves \
+    e2fsprogs \
+    ethtool \
+    fuse \
     glibc \
     iperf3 \
+    iptables \
+    iputils \
+    ipvsadm \
     jq \
     kernel-devel \
+    kernel-tools \
     libasan \
     libcap-devel \
     libcap-ng-devel \
@@ -45,6 +53,7 @@ install_kselftest_deps_8() {
     ncurses-devel \
     net-tools \
     netsniff-ng \
+    nftables \
     nmap-ncat \
     numactl-devel \
     openssl-devel \
@@ -54,6 +63,8 @@ install_kselftest_deps_8() {
     rsync \
     socat \
     tcpdump \
+    teamd \
+    traceroute \
     wget
 
     # Doesn't work for 8.6?
@@ -84,17 +95,25 @@ install_kselftest_deps_9() {
     alsa-lib-devel \
     bc \
     clang \
+    conntrack-tools \
     curl \
     dropwatch \
     dwarves \
+    e2fsprogs \
+    ethtool \
+    fuse \
     fuse-devel \
     gcc-toolset-13-libasan-devel \
     glibc \
     glibc-static \
     iperf3 \
+    iptables \
+    iputils \
+    ipvsadm \
     jq \
     kernel-devel \
     kernel-selftests-internal \
+    kernel-tools \
     libasan \
     libcap-devel \
     libcap-ng-devel \
@@ -105,6 +124,7 @@ install_kselftest_deps_9() {
     ncurses-devel \
     net-tools \
     netsniff-ng \
+    nftables \
     nmap-ncat \
     numactl-devel \
     openssl-devel \
@@ -115,6 +135,8 @@ install_kselftest_deps_9() {
     rsync \
     socat \
     tcpdump \
+    teamd \
+    traceroute \
     virtme-ng \
     wget
 
@@ -139,15 +161,23 @@ install_kselftest_deps_10() {
     alsa-lib-devel \
     bc \
     clang \
+    conntrack-tools \
     curl \
     dropwatch \
     dwarves \
+    e2fsprogs \
+    ethtool \
+    fuse \
     fuse-devel \
     glibc \
     glibc-static \
     iperf3 \
+    iptables \
+    iputils \
+    ipvsadm \
     kernel-devel \
     kernel-selftests-internal \
+    kernel-tools \
     libasan \
     libasan-static \
     libcap-devel \
@@ -158,6 +188,7 @@ install_kselftest_deps_10() {
     llvm \
     ncurses-devel \
     net-tools \
+    nftables \
     nmap-ncat \
     numactl-devel \
     openssl-devel \
@@ -168,6 +199,8 @@ install_kselftest_deps_10() {
     rsync \
     socat \
     tcpdump \
+    teamd \
+    traceroute \
     virtme-ng \
     wget
 
