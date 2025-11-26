@@ -41,10 +41,7 @@ def get_commit_maps_from_backport_data(repo_path, branch, common_tag):
     # get_backport_commit_data returns:
     # { "upstream_sha": { "repo_commit": "ciq_sha", "upstream_subject": "...", ... } }
     backport_data, success = get_backport_commit_data(
-        repo_path,
-        branch,
-        common_tag.decode() if isinstance(common_tag, bytes) else common_tag,
-        allow_duplicates=True
+        repo_path, branch, common_tag.decode() if isinstance(common_tag, bytes) else common_tag, allow_duplicates=True
     )
 
     if not success:
@@ -373,9 +370,7 @@ if __name__ == "__main__":
     for ciq_commit, upstream_commit in rolling_commit_map.items():
         if upstream_commit and upstream_commit in new_base_commit_map_rev:
             new_base_ciq_commit = new_base_commit_map_rev[upstream_commit]
-            print(
-                f"- Old commit {ciq_commit[:12]} backported upstream {upstream_commit[:12]}"
-            )
+            print(f"- Old commit {ciq_commit[:12]} backported upstream {upstream_commit[:12]}")
             print(
                 f"  Already in new base as {new_base_ciq_commit[:12]}: {repo.git.show('--pretty=%s', '-s', new_base_ciq_commit)}"
             )
@@ -427,9 +422,11 @@ if __name__ == "__main__":
 
                 # Loop until conflict is resolved or user aborts
                 while True:
-                    user_input = input(
-                        '[rolling release update] Press Enter when resolved (or type "stop"/"abort" to exit): '
-                    ).strip().lower()
+                    user_input = (
+                        input('[rolling release update] Press Enter when resolved (or type "stop"/"abort" to exit): ')
+                        .strip()
+                        .lower()
+                    )
 
                     if user_input in ["stop", "abort"]:
                         print("[rolling release update] ========================================")
@@ -453,7 +450,9 @@ if __name__ == "__main__":
                     # Check if CHERRY_PICK_HEAD still exists (indicates incomplete cherry-pick)
                     cherry_pick_head = os.path.join(args.repo, ".git", "CHERRY_PICK_HEAD")
                     if os.path.exists(cherry_pick_head):
-                        print("[rolling release update] ERROR: Cherry-pick not completed (.git/CHERRY_PICK_HEAD still exists)")
+                        print(
+                            "[rolling release update] ERROR: Cherry-pick not completed (.git/CHERRY_PICK_HEAD still exists)"
+                        )
                         print("[rolling release update] Please complete the cherry-pick with:")
                         print("[rolling release update]   git cherry-pick --continue")
                         print("[rolling release update] or abort with:")
