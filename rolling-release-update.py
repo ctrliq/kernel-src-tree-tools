@@ -6,6 +6,8 @@ import subprocess
 
 import git
 
+from ciq_helpers import get_backport_commit_data
+
 FIPS_PROTECTED_DIRECTORIES = [
     b"arch/x86/crypto/",
     b"crypto/asymmetric_keys/",
@@ -23,6 +25,55 @@ def find_common_tag(old_tags, new_tags):
         if tag in new_tags:
             return tag
     return None
+
+
+def get_commit_maps_from_backport_data(repo_path, branch, common_tag):
+    """Get commit maps using get_backport_commit_data from ciq_helpers.
+
+    This function properly parses all commits and extracts upstream references
+    from 'commit <sha>' lines in commit bodies. This ensures we correctly identify
+    duplicates even when different CIQ commits reference the same upstream commit.
+
+    Returns:
+        commit_map: dict mapping CIQ commit SHA -> upstream commit SHA (or "" if no upstream)
+        commit_map_rev: dict mapping upstream commit SHA -> CIQ commit SHA
+    """
+    # get_backport_commit_data returns:
+    # { "upstream_sha": { "repo_commit": "ciq_sha", "upstream_subject": "...", ... } }
+    backport_data, success = get_backport_commit_data(
+        repo_path,
+        branch,
+        common_tag.decode() if isinstance(common_tag, bytes) else common_tag,
+        allow_duplicates=True
+    )
+
+    if not success:
+        print("[rolling release update] WARNING: Duplicate upstream commits detected in backport data")
+        print("[rolling release update] Continuing with allow_duplicates=True")
+
+    # Transform to the format expected by the rest of the script
+    commit_map = {}
+    commit_map_rev = {}
+
+    for upstream_sha, data in backport_data.items():
+        ciq_sha = data["repo_commit"]
+        commit_map[ciq_sha] = upstream_sha
+        commit_map_rev[upstream_sha] = ciq_sha
+
+    # Also get all commits (including those without upstream references)
+    # to ensure we have a complete list
+    repo = git.Repo(repo_path)
+    repo.git.checkout(branch)
+    common_tag_str = common_tag.decode() if isinstance(common_tag, bytes) else common_tag
+    all_commits = repo.git.log("--pretty=%H", f"{common_tag_str}..HEAD").split("\n")
+
+    # Add commits without upstream references (CIQ-specific commits)
+    for commit_sha in all_commits:
+        commit_sha = commit_sha.strip()
+        if commit_sha and commit_sha not in commit_map:
+            commit_map[commit_sha] = ""
+
+    return commit_map, commit_map_rev
 
 
 def get_branch_tag_sha_list(repo, branch, minor_version=False):
@@ -224,17 +275,9 @@ if __name__ == "__main__":
         "[rolling release update] Finding the CIQ Kernel and Associated Upstream commits between the last resf tag and HEAD"
     )
     print(f"[rolling release update] Getting SHAS {old_rolling_resf_tag_sha.decode()}..HEAD")
-    rolling_commit_map = {}
-    rollint_commit_map_rev = {}
-    rolling_commits = repo.git.log(f"{old_rolling_resf_tag_sha.decode()}..HEAD")
-    for line in rolling_commits.split("\n"):
-        if line.startswith("commit "):
-            ciq_commit = line.split("commit ")[1]
-            rolling_commit_map[ciq_commit] = ""
-        if line.startswith("    commit "):
-            upstream_commit = line.split("    commit ")[1]
-            rolling_commit_map[ciq_commit] = upstream_commit
-            rollint_commit_map_rev[upstream_commit] = ciq_commit
+    rolling_commit_map, rolling_commit_map_rev = get_commit_maps_from_backport_data(
+        args.repo, args.old_rolling_branch, old_rolling_resf_tag_sha
+    )
 
     print("[rolling release update] Last RESF tag sha: ", common_sha)
 
@@ -309,17 +352,9 @@ if __name__ == "__main__":
         exit(1)
 
     print("[rolling release update] Creating Map of all new commits from last rolling release fork")
-    new_base_commit_map = {}
-    new_base_commit_map_rev = {}
-    new_base_commits = repo.git.log(f"{common_sha.decode()}..HEAD")
-    for line in new_base_commits.split("\n"):
-        if line.startswith("commit "):
-            ciq_commit = line.split("commit ")[1]
-            new_base_commit_map[ciq_commit] = ""
-        if line.startswith("    commit "):
-            upstream_commit = line.split("    commit ")[1]
-            new_base_commit_map[ciq_commit] = upstream_commit
-            new_base_commit_map_rev[upstream_commit] = ciq_commit
+    new_base_commit_map, new_base_commit_map_rev = get_commit_maps_from_backport_data(
+        args.repo, f"{os.getlogin()}_{new_rolling_branch_kernel}", common_sha
+    )
 
     print(f"[rolling release update] Total commits in new branch: {len(new_base_commit_map)}")
     if DEBUG:
@@ -336,14 +371,18 @@ if __name__ == "__main__":
     )
     commits_to_remove = {}
     for ciq_commit, upstream_commit in rolling_commit_map.items():
-        if upstream_commit in new_base_commit_map_rev:
+        if upstream_commit and upstream_commit in new_base_commit_map_rev:
+            new_base_ciq_commit = new_base_commit_map_rev[upstream_commit]
             print(
-                f"- Commit {ciq_commit} already present in new base branch: {repo.git.show('--pretty=oneline', '-s', ciq_commit)}"
+                f"- Old commit {ciq_commit[:12]} backported upstream {upstream_commit[:12]}"
+            )
+            print(
+                f"  Already in new base as {new_base_ciq_commit[:12]}: {repo.git.show('--pretty=%s', '-s', new_base_ciq_commit)}"
             )
             commits_to_remove[ciq_commit] = upstream_commit
-        if ciq_commit in new_base_commit_map:
+        elif ciq_commit in new_base_commit_map:
             print(
-                f"- CIQ Commit {ciq_commit} already present in new base branch: {repo.git.show('--pretty=oneline', '-s', ciq_commit)}"
+                f"- CIQ Commit {ciq_commit[:12]} already present in new base branch: {repo.git.show('--pretty=oneline', '-s', ciq_commit)}"
             )
             commits_to_remove[ciq_commit] = upstream_commit
 
