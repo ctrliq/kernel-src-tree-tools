@@ -435,7 +435,13 @@ if __name__ == "__main__":
 
                         # Print remaining commits including the current failed one
                         remaining_commits = list(reversed(rolling_commit_map.items()))
-                        start_idx = remaining_commits.index((ciq_commit, upstream_commit))
+                        try:
+                            start_idx = remaining_commits.index((ciq_commit, upstream_commit))
+                        except ValueError:
+                            print("[rolling release update] ERROR: Current commit not found in remaining commits list.")
+                            print("[rolling release update] This may indicate an internal error or unexpected state.")
+                            print("[rolling release update] Aborting.")
+                            exit(1)
 
                         for remaining_commit, remaining_upstream in remaining_commits[start_idx:]:
                             short_sha = repo.git.rev_parse("--short", remaining_commit)
