@@ -7,49 +7,70 @@ if [ -z "$UPSTREAM_REF" ]; then
     echo "UPSTREAM_REF not set, defaulting to $UPSTREAM_REF"
 fi
 
+# Validate UPSTREAM_REF format to prevent shell injection
+if [[ ! "$UPSTREAM_REF" =~ ^stable_[0-9]+\.[0-9]+\.y$ ]]; then
+    echo "Invalid UPSTREAM_REF format: $UPSTREAM_REF"
+    echo "Expected format: stable_X.Y.y (e.g., stable_6.12.y)"
+    exit 1
+fi
+
+# Extract kernel version from UPSTREAM_REF (e.g., stable_6.12.y -> 6.12)
+KERNEL_VERSION=$(echo "$UPSTREAM_REF" | sed -E 's/.*_([0-9]+\.[0-9]+)\.y/\1/')
+if [ -z "$KERNEL_VERSION" ]; then
+    echo "Failed to extract kernel version from UPSTREAM_REF: $UPSTREAM_REF"
+    echo "Expected format: stable_X.Y.y (e.g., stable_6.12.y)"
+    exit 1
+fi
+echo "Detected kernel version: $KERNEL_VERSION"
+
+# Define branch names based on kernel version
+CIQ_BASE_BRANCH="ciq-${KERNEL_VERSION}.y"
+CIQ_NEXT_BRANCH="ciq-${KERNEL_VERSION}.y-next"
+CIQ_TMP_BRANCH="{automation_tmp}_ciq-${KERNEL_VERSION}.y-next"
+
 git fetch --all
-git show-ref --verify --quiet refs/remotes/origin/$UPSTREAM_REF
+git show-ref --verify --quiet "refs/remotes/origin/${UPSTREAM_REF}"
 if [ $? -ne 0 ]; then
     echo "UPSTREAM_REF $UPSTREAM_REF does not exist, please check status of remote and local branches"
     exit 1
 fi
 
-git checkout $UPSTREAM_REF
+git checkout "${UPSTREAM_REF}"
 if [ $? -ne 0 ]; then
     echo "Failed to checkout $UPSTREAM_REF, please check status of remote and local branches"
     exit 1
 fi
 
-git show-ref --verify --quiet refs/heads/ciq-6.12.y-next
-if [ $? -eq 0 ]; then 
-    echo "ciq-6.12.y-next branch already exists, please check status of remote and local branches"
+git show-ref --verify --quiet "refs/heads/${CIQ_NEXT_BRANCH}"
+if [ $? -eq 0 ]; then
+    echo "$CIQ_NEXT_BRANCH branch already exists, please check status of remote and local branches"
     exit 1
 fi
 
-git show-ref --verify --quiet refs/heads/{automation_tmp}_ciq-6.12.y-next
-if [ $? -eq 0 ]; then 
-    echo "{automation_tmp}_ciq-6.12.y-next branch already exists, please check status of remote and local branches"
+git show-ref --verify --quiet "refs/heads/${CIQ_TMP_BRANCH}"
+if [ $? -eq 0 ]; then
+    echo "$CIQ_TMP_BRANCH branch already exists, please check status of remote and local branches"
     exit 1
 fi
 
-git checkout -b ciq-6.12.y-next $UPSTREAM_REF
+git checkout -b "${CIQ_NEXT_BRANCH}" "${UPSTREAM_REF}"
 if [ $? -ne 0 ]; then
-    echo "Failed to checkout ciq-6.12.y-next, please check status of remote and local branches"
+    echo "Failed to checkout $CIQ_NEXT_BRANCH, please check status of remote and local branches"
     exit 1
 fi
-git checkout ciq-6.12.y
+git checkout "${CIQ_BASE_BRANCH}"
 if [ $? -ne 0 ]; then
-    echo "Failed to checkout ciq-6.12.y, please check status of remote and local branches"
+    echo "Failed to checkout $CIQ_BASE_BRANCH, please check status of remote and local branches"
     exit 1
 fi
-git checkout -b {automation_tmp}_ciq-6.12.y-next
+git checkout -b "${CIQ_TMP_BRANCH}"
 if [ $? -ne 0 ]; then
-    echo "Failed to checkout {automation_tmp}_ciq-6.12.y-next, please check status of remote and local branches"
+    echo "Failed to checkout $CIQ_TMP_BRANCH, please check status of remote and local branches"
     exit 1
 fi
-git rebase ciq-6.12.y-next
+git rebase "${CIQ_NEXT_BRANCH}"
 if [ $? -ne 0 ]; then
-    echo "Failed to rebase {automation_tmp}_ciq-6.12.y-next, please check status of remote and local branches"
+    echo "Failed to rebase $CIQ_TMP_BRANCH, please check status of remote and local branches"
     exit 1
 fi
 
