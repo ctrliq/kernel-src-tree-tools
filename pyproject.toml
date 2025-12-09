@@ -13,6 +13,7 @@ dependencies = [
 	"pexpect",
 	"jira",
 	"requests",
+	"more_itertools"
 ]
 
 [project.optional-dependencies]
