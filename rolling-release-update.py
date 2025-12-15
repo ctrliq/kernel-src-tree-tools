@@ -398,7 +398,7 @@ if __name__ == "__main__":
         commit_info = repo.git.show("--pretty=%h %s", "-s", ciq_commit)
         print(f"  [{commits_applied}/{len(rolling_commit_map)}] {commit_info}")
         result = subprocess.run(
-            ["git", "cherry-pick", "-s", ciq_commit], stderr=subprocess.PIPE, stdout=subprocess.PIPE, cwd=args.repo
+            ["git", "cherry-pick", ciq_commit], stderr=subprocess.PIPE, stdout=subprocess.PIPE, cwd=args.repo
         )
         if result.returncode != 0:
             print(f"[rolling release update] ERROR: Failed to cherry-pick commit {ciq_commit}")
