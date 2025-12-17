@@ -25,6 +25,7 @@ jira_field_map = {
 
 # Product to branch mapping
 release_map = {
+    "lts-9.6": {"src_git_branch": "ciqlts9_6", "dist_git_branch": "lts96-9", "mock_config": "rocky-lts96"},
     "lts-9.4": {"src_git_branch": "ciqlts9_4", "dist_git_branch": "lts94-9", "mock_config": "rocky-lts94"},
     "lts-9.2": {"src_git_branch": "ciqlts9_2", "dist_git_branch": "lts92-9", "mock_config": "rocky-lts92"},
     "lts-8.8": {"src_git_branch": "ciqlts8_8", "dist_git_branch": "lts88-8", "mock_config": "rocky-lts88"},
