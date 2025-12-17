@@ -38,3 +38,9 @@ kernels:
     src_tree_branch: fips-9-compliant/5.14.0-284.30.1
     dist_git_root: dist-git-tree-fips
     dist_git_branch: el92-fips-compliant-9
+
+  lts-9.6:
+    src_tree_root: kernel-src-tree
+    src_tree_branch: ciqlts9_6
+    dist_git_root: dist-git-tree-lts
+    dist_git_branch: lts96-9
