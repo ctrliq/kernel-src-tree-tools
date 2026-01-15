@@ -5,6 +5,7 @@ import logging
 import click
 
 from kt.commands.checkout.command import checkout
+from kt.commands.git_push.command import git_push
 from kt.commands.list_kernels.command import list_kernels
 from kt.commands.setup.command import setup
 
@@ -26,6 +27,7 @@ def main():
     cli.add_command(list_kernels)
     cli.add_command(setup)
     cli.add_command(checkout)
+    cli.add_command(git_push)
     cli()
 
 
