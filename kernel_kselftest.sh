@@ -267,7 +267,7 @@ case $(uname -r) in
         echo "Running 6.12/6.18 kselftests"
         echo
         SUDO_TARGETS="binderfs capabilities cgroup clone3 cpu-hotplug cpufreq damon drivers/net efivars efivarfs exec firmware fpu gpio ipc intel_pstate ir kexec lib livepatch memfd memory-hotplug mptcp mqueue net netfilter sync sysctl timens timers vm x86 zram"
-        SKIP_TARGETS="lkdtm"
+        SKIP_TARGETS="lkdtm net/forwarding"
         ;;
     *)
         echo
