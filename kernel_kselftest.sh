@@ -75,11 +75,13 @@ install_kselftest_deps_8() {
     kernel-selftests-internal
 
     pip3 install --user \
+    jsonschema \
     netaddr \
     packaging \
     pyftpdlib \
     pyparsing \
     pytest \
+    pyyaml \
     scapy \
     tftpy
 }
@@ -141,11 +143,13 @@ install_kselftest_deps_9() {
     wget
 
     pip3 install --user \
+    jsonschema \
     netaddr \
     packaging \
     pyftpdlib \
     pyparsing \
     pytest \
+    pyyaml \
     scapy \
     tftpy \
     wheel
@@ -205,11 +209,13 @@ install_kselftest_deps_10() {
     wget
 
     pip3 install --user \
+    jsonschema \
     netaddr \
     packaging \
     pyftpdlib \
     pyparsing \
     pytest \
+    pyyaml \
     scapy \
     tftpy \
     wheel
