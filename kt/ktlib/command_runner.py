@@ -16,7 +16,7 @@ class CommandRunner:
         raise NotImplementedError
 
     @classmethod
-    def run(cls, **kwargs) -> str:
+    def run(cls, cwd=None, **kwargs) -> str:
         full_command = cls._build_command(**kwargs)
         logging.info(f"Running command {full_command}")
 
@@ -25,6 +25,7 @@ class CommandRunner:
             text=True,
             capture_output=True,
             check=False,
+            cwd=cwd,
         )
         if result.returncode != 0:
             raise RuntimeError(result.stderr)
@@ -32,13 +33,18 @@ class CommandRunner:
         return result.stdout
 
     @classmethod
-    def run_with_output(cls, output_file: str, **kwargs):
+    def run_with_output(cls, output_file: str, cwd=None, **kwargs):
         full_command = cls._build_command(**kwargs)
         logging.info(f"Running command {full_command}")
 
         # Run the command and stream output
         process = subprocess.Popen(
-            full_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, bufsize=1
+            full_command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+            bufsize=1,
+            cwd=cwd,
         )
 
         # Read and display output line by line

@@ -166,6 +166,7 @@ install_kselftest_deps_10() {
     iptables \
     iputils \
     ipvsadm \
+    jq \
     kernel-devel \
     kernel-selftests-internal \
     kernel-tools \
@@ -179,6 +180,7 @@ install_kselftest_deps_10() {
     llvm \
     ncurses-devel \
     net-tools \
+    netsniff-ng \
     nftables \
     nmap-ncat \
     numactl-devel \

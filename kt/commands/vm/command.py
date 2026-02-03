@@ -59,4 +59,7 @@ $ kt vm lts9_4 -c --override
 @click.option("--test", is_flag=True, help="Build the kernel and run kselftests")
 @click.argument("kernel_workspace", required=False, shell_complete=ShellCompletion.show_kernel_workspaces)
 def vm(kernel_workspace, console, destroy, override, list_all, test):
+    if not list_all and not kernel_workspace:
+        raise click.UsageError("kernel_workspace is required unless --list-all is specified")
+
     main(name=kernel_workspace, console=console, destroy=destroy, override=override, list_all=list_all, test=test)

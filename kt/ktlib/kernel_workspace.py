@@ -100,6 +100,30 @@ class RepoWorktree:
 
         repo.git.push(*args)
 
+    def check_git_config_value(self, section, option):
+        """
+        Get a git config value from repo or global config.
+
+        Args:
+            section: Config section (e.g., 'user')
+            option: Config option (e.g., 'name')
+
+        Returns:
+            The config value, or None if not found
+        """
+        repo = Repo(self.folder)
+        try:
+            # Try repo-specific config first
+            return repo.config_reader().get_value(section, option)
+        except Exception:
+            pass
+
+        try:
+            # Fall back to global config
+            return repo.config_reader("global").get_value(section, option)
+        except Exception:
+            return None
+
 
 @dataclass
 class KernelWorkspace:
@@ -124,6 +148,22 @@ class KernelWorkspace:
             dist_worktree=dist_worktree,
             src_worktree=src_worktree,
         )
+
+    @classmethod
+    def load_from_name(cls, kernel_workspace_name: str):
+        """
+        Load a kernel workspace by name.
+
+        Args:
+            kernel_workspace_name: The name of the kernel workspace (e.g., 'lts-9.4')
+
+        Returns:
+            KernelWorkspace
+        """
+        config = Config.load()
+        kernel_workpath = config.kernels_dir / kernel_workspace_name
+        workspace = cls.load_from_filepath(folder=kernel_workpath)
+        return workspace
 
     @classmethod
     def load(cls, name: str, config: Config, kernel_info: KernelInfo, extra: str):

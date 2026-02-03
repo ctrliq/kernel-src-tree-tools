@@ -295,3 +295,58 @@ and then
 ```
 <config.base_path>/kernel-src-tree-tools/kernel-kselftest.sh
 ```
+
+### kt content-release
+
+Manages the complete content release workflow for kernel packages. This command
+automates the process of preparing, building, and testing kernel releases.
+
+The command has three steps that can be run individually or all together:
+
+#### --prepare
+Prepares the content release by:
+- Validating git user.name and user.email are configured
+- Running mkdistgitdiff.py to generate the staging branch and release files
+- Checking out the staging branch {automation_tmp}_<src_branch>
+- Creating and displaying the new release tag
+
+#### --build
+Builds kernel RPMs by:
+- Verifying mock is installed and user is in mock group
+- Checking DEPOT_USER and DEPOT_TOKEN environment variables are set
+- Creating a temporary mock config with depot credentials
+- Downloading sources using getsrc.sh
+- Building SRPM with mock
+- Building binary RPMs from the SRPM
+- Listing all created RPMs
+
+Requirements:
+- mock must be installed
+- User must be in the mock group
+- DEPOT_USER and DEPOT_TOKEN environment variables must be set
+
+#### --test
+Tests the built kernel by:
+- Spinning up a VM (creates if needed, boots if stopped)
+- Installing the built kernel RPMs from build_files
+- Rebooting the VM
+- Running kselftests using /usr/libexec/kselftests/run_kselftest.sh
+- Reporting number of tests passed
+
+Output logs:
+- install.log: RPM installation output
+- selftest-<kernel_version>.log: Kselftest results
+
+#### Example:
+
+Run all steps:
+```
+$ DEPOT_USER=user@example.com DEPOT_TOKEN=token kt content-release lts-9.2
+```
+
+Run individual steps:
+```
+$ kt content-release lts-9.2 --prepare
+$ DEPOT_USER=user@example.com DEPOT_TOKEN=token kt content-release lts-9.2 --build
+$ kt content-release lts-9.2 --test
+```

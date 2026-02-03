@@ -21,6 +21,7 @@ class KernelInfo:
     src_tree_branch: the corresponding branch in the source tree
     dist_git_root: rocky staging rpm repo
     dist_git_branch: corresponding branch in the rocky staging rpm repo
+    mock_config: mock configuration name for building RPMs
 
     The src_tree_root and dist_git_root contain absolute paths to the local
     clone of these repos and their corresponding remote url.
@@ -33,6 +34,8 @@ class KernelInfo:
 
     dist_git_root: RepoInfo
     dist_git_branch: str
+
+    mock_config: str
 
 
 @dataclass
