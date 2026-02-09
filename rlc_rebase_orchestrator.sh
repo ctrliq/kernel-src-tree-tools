@@ -15,7 +15,7 @@
 #   ./rlc_rebase_orchestrator.sh [options]
 #
 # Options:
-#   -P, --product        Rolling product (e.g., rlc-10, sig-cloud-9, sig-cloud-8)
+#   -P, --product        Rolling product (e.g., rlc-10, rlc-9, rlc-8)
 #                        Default: auto-detect from repository
 #   -b, --base-branch    Base branch to rebase onto (e.g., rocky10_1, rocky9_5)
 #                        Default: auto-detect latest rockyX_Y branch
@@ -26,6 +26,10 @@
 #   -p, --no-push        Skip pushing branches to origin
 #   -r, --no-pr          Skip creating PR
 #   --dry-run            Show what would be done without executing
+#   --resume             Resume from saved state
+#   --build-only         Only run VM build phase (skip rebase, test, push, PR)
+#   --test-only          Only run kselftest phase (skip rebase, build, push, PR)
+#   --pr-only            Only create PR (skip rebase, build, test)
 #   -h, --help           Show this help message
 #
 # Examples:
@@ -65,12 +69,21 @@ SKIP_VM=false
 SKIP_PUSH=false
 SKIP_PR=false
 DRY_RUN=false
+RESUME_MODE=false
+BUILD_ONLY=false
+TEST_ONLY=false
+PR_ONLY=false
 STARTTIME=$(date +%s)
 
 # Log file variables (initialized later after ROLLING_PRODUCT is determined)
 RR_LOGFILE=""
 ORCH_LOGFILE=""
 LOGFILE=""
+
+# State management
+STATE_DIR="${PARENT_DIR}/.rlc_rebase_state"
+STATE_FILE="${STATE_DIR}/current.state"
+CURRENT_STAGE="init"
 
 # Colors for output
 RED='\033[0;31m'
@@ -94,6 +107,60 @@ log_warn() {
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
+
+# State management functions
+save_state() {
+    local stage="$1"
+    mkdir -p "$STATE_DIR"
+    cat > "$STATE_FILE" << EOF
+STAGE=$stage
+ROLLING_PRODUCT=$ROLLING_PRODUCT
+BASE_BRANCH=$BASE_BRANCH
+OLD_BRANCH=$OLD_BRANCH
+NEW_ROLLING_BRANCH=${NEW_ROLLING_BRANCH:-}
+NEW_PR_BRANCH=${NEW_PR_BRANCH:-}
+JIRA_TICKET=${JIRA_TICKET:-}
+KVM_NAME=$KVM_NAME
+RR_LOGFILE=${RR_LOGFILE:-}
+ORCH_LOGFILE=${ORCH_LOGFILE:-}
+TIMESTAMP=$(date +%s)
+EOF
+    CURRENT_STAGE="$stage"
+}
+
+load_state() {
+    if [ -f "$STATE_FILE" ]; then
+        # shellcheck source=/dev/null
+        source "$STATE_FILE"
+        CURRENT_STAGE="${STAGE:-init}"
+        log_info "Loaded state from previous run (stage: $CURRENT_STAGE)"
+        return 0
+    fi
+    return 1
+}
+
+# shellcheck disable=SC2317  # Called indirectly via cleanup_on_exit trap
+clear_state() {
+    rm -f "$STATE_FILE"
+    CURRENT_STAGE="init"
+}
+
+# Trap handler for cleanup on exit
+# shellcheck disable=SC2317  # Functions are called indirectly via trap
+cleanup_on_exit() {
+    local exit_code=$?
+    if [ "$exit_code" -ne 0 ] && [ "$DRY_RUN" = false ]; then
+        log_warn "Script failed with exit code $exit_code at stage: $CURRENT_STAGE"
+        log_info "State saved. Resume with: $0 --resume"
+        save_state "$CURRENT_STAGE"
+    elif [ "$exit_code" -eq 0 ]; then
+        # Clear state on success
+        clear_state
+    fi
+}
+trap cleanup_on_exit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Repository URLs for auto-cloning
 ROLLING_REPO_URL="git@github.com:ctrliq/kernel-src-tree.git"
@@ -184,7 +251,7 @@ wait_for_vm_ssh() {
 }
 
 show_help() {
-    head -50 "$0" | grep -E "^#" | sed 's/^# \?//'
+    head -55 "$0" | grep -E "^#" | sed 's/^# \?//'
     exit 0
 }
 
@@ -227,6 +294,23 @@ while [[ $# -gt 0 ]]; do
             DRY_RUN=true
             shift
             ;;
+        --resume)
+            RESUME_MODE=true
+            shift
+            ;;
+        --build-only)
+            BUILD_ONLY=true
+            shift
+            ;;
+        --test-only)
+            TEST_ONLY=true
+            shift
+            ;;
+        --pr-only)
+            PR_ONLY=true
+            SKIP_VM=true  # No VM needed for PR-only mode
+            shift
+            ;;
         -h|--help)
             show_help
             ;;
@@ -236,6 +320,35 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Handle resume mode
+if [ "$RESUME_MODE" = true ]; then
+    if load_state; then
+        log_info "Resuming from stage: $CURRENT_STAGE"
+        # Variables were loaded from state file
+    else
+        log_error "No saved state found to resume from"
+        exit 1
+    fi
+fi
+
+# Handle phase-only modes
+if [ "$BUILD_ONLY" = true ]; then
+    log_info "BUILD-ONLY mode: skipping rebase, tests, push, and PR"
+    SKIP_PUSH=true
+    SKIP_PR=true
+fi
+
+if [ "$TEST_ONLY" = true ]; then
+    log_info "TEST-ONLY mode: skipping rebase, build, push, and PR"
+    SKIP_PUSH=true
+    SKIP_PR=true
+fi
+
+if [ "$PR_ONLY" = true ]; then
+    log_info "PR-ONLY mode: skipping rebase, build, and tests"
+    # SKIP_VM already set in argument parsing
+fi
 
 # Verify prerequisites
 log_info "Verifying prerequisites..."
@@ -422,8 +535,12 @@ ORCH_LOGFILE="${LOG_DIR}/orchestrator.${ROLLING_PRODUCT}.${LOG_TIMESTAMP}.log"
 # For backwards compatibility, LOGFILE points to orchestrator log
 LOGFILE="$ORCH_LOGFILE"
 
-# Run rolling-release-update.py
-log_info "Running rolling-release-update.py..."
+# Save state after detection
+save_state "detected"
+
+# Run rolling-release-update.py (skip if resuming from later stage or in phase-only modes)
+if [[ "$CURRENT_STAGE" =~ ^(detected|init)$ ]] && [ "$BUILD_ONLY" = false ] && [ "$TEST_ONLY" = false ] && [ "$PR_ONLY" = false ]; then
+    log_info "Running rolling-release-update.py..."
 
 if [ "$DRY_RUN" = false ]; then
     pushd "$TOOLS_REPO" > /dev/null
@@ -450,6 +567,9 @@ if [ "$DRY_RUN" = false ]; then
     log_info "Orchestrator log: $ORCH_LOGFILE"
 else
     log_info "[DRY RUN] Would run: python3 rolling-release-update.py --repo $ROLLING_REPO --new-base-branch $BASE_BRANCH --old-rolling-branch $OLD_BRANCH"
+fi
+else
+    log_info "Skipping rebase phase (resuming from $CURRENT_STAGE or phase-only mode)"
 fi
 
 # Extract the new branch name from the log or detect it
@@ -478,6 +598,9 @@ else
         log_info "[DRY RUN] Predicted new PR branch:      $NEW_PR_BRANCH"
     fi
 fi
+
+# Save state after rebase
+save_state "rebased"
 
 # VM Build and Test
 if [ "$SKIP_VM" = false ]; then
@@ -518,6 +641,13 @@ if [ "$SKIP_VM" = false ]; then
                 exit 1
             fi
             log_success "Kernel build completed"
+            save_state "built"
+        fi
+
+        # Exit early if BUILD_ONLY mode
+        if [ "$BUILD_ONLY" = true ]; then
+            log_info "BUILD-ONLY mode: stopping after build"
+            exit 0
         fi
 
         # Wait for reboot
@@ -539,11 +669,20 @@ if [ "$SKIP_VM" = false ]; then
             log_success "VM is back online"
         fi
 
-        # Run kselftests
-        log_info "Running kselftests..."
-        if [ "$DRY_RUN" = false ]; then
-            ssh -o StrictHostKeyChecking=no "$VMIP" "cd /mnt/code/kernel-src-tree-build && ../kernel-src-tree-tools/kernel_kselftest.sh" 2>&1 | tee -a "$LOGFILE"
-            log_success "Kselftests completed"
+        # Run kselftests (skip if BUILD_ONLY)
+        if [ "$BUILD_ONLY" = false ]; then
+            log_info "Running kselftests..."
+            if [ "$DRY_RUN" = false ]; then
+                ssh -o StrictHostKeyChecking=no "$VMIP" "cd /mnt/code/kernel-src-tree-build && ../kernel-src-tree-tools/kernel_kselftest.sh" 2>&1 | tee -a "$LOGFILE"
+                log_success "Kselftests completed"
+                save_state "tested"
+            fi
+        fi
+
+        # Exit early if TEST_ONLY mode
+        if [ "$TEST_ONLY" = true ]; then
+            log_info "TEST-ONLY mode: stopping after tests"
+            exit 0
         fi
     else
         log_warn "VM $KVM_NAME could not be started, skipping VM testing"
@@ -637,6 +776,7 @@ if [ "$DRY_RUN" = false ] && [ -n "$NEW_ROLLING_BRANCH" ]; then
         popd > /dev/null
 
         log_success "Branches pushed successfully"
+        save_state "pushed"
     else
         log_info "Skipping push (--no-push specified)"
         echo ""
