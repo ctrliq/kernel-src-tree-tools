@@ -561,18 +561,57 @@ if [ "$DRY_RUN" = false ] && [ -n "$NEW_ROLLING_BRANCH" ]; then
     KERNEL_VERSION="${NEW_ROLLING_BRANCH#"${ROLLING_PRODUCT}/"}"
     PR_TITLE="[${PR_PREFIX}] Rebase Custom Changes to $NEW_ROLLING_BRANCH"
 
-    # Build PR body
-    PR_BODY="## Update process (This kernel CentOS base for $KERNEL_VERSION)
-* Rebased rolling release branch from \`$OLD_BRANCH\` to \`$NEW_ROLLING_BRANCH\`
-* Cherry-picked all custom changes to new base branch
-* Build and Test completed
+    # Get build timing from latest kbuild log (filtered to [TIMER] lines)
+    # shellcheck disable=SC2012  # ls is safe here - we control the log naming convention
+    LATEST_KBUILD=$(ls -t "${PARENT_DIR}"/kbuild*.log 2>/dev/null | head -n1)
+    BUILD_TIMING=""
+    if [ -n "${LATEST_KBUILD}" ] && [ -f "${LATEST_KBUILD}" ]; then
+        BUILD_TIMING=$(grep -E -B 5 -A 5 "\[TIMER\]|^Starting Build" "${LATEST_KBUILD}" 2>/dev/null || echo "")
+    fi
 
-## Rebuild Log
+    # Get kselftest diff
+    KSELFTEST_SCRIPT="${PARENT_DIR}/kernel-tools/kernel_auto_rebuild/get_kselftest_diff.sh"
+    KSELFTEST_DIFF=""
+    if [ -x "${KSELFTEST_SCRIPT}" ]; then
+        KSELFTEST_DIFF=$(bash "${KSELFTEST_SCRIPT}" 2>/dev/null || echo "")
+    fi
+
+    # Build PR body (following PR #864 format)
+    PR_BODY="## Update process (This kernel CentOS base for $KERNEL_VERSION)
+* Rolling Release Rebase Process
+* Create \`$NEW_ROLLING_BRANCH\` branch from \`$BASE_BRANCH\`
+* Cherry-pick all code from previous branch \`$OLD_BRANCH\` into new branch (skipping unneeded code)
+  * Fix conflicts as they arise
+* Build and Test
+
+## Rebase Log
 \`\`\`
-$(cat "$LOGFILE" 2>/dev/null || echo "Log file not available")
+$(cat "$RR_LOGFILE" 2>/dev/null || echo "Log file not available")
 \`\`\`"
 
-    # Add JIRA link if specified
+    # Add BUILD section if we have timing data
+    if [ -n "${BUILD_TIMING}" ]; then
+        PR_BODY="${PR_BODY}
+
+## BUILD
+\`\`\`
+\$ egrep -B 5 -A 5 \"\\[TIMER\\]|^Starting Build\" \$(ls -t kbuild* | head -n1)
+${BUILD_TIMING}
+\`\`\`"
+    fi
+
+    # Add KSelfTest section if we have diff data
+    if [ -n "${KSELFTEST_DIFF}" ]; then
+        PR_BODY="${PR_BODY}
+
+## KSelfTest
+\`\`\`
+\$ ./kernel-tools/kernel_auto_rebuild/get_kselftest_diff.sh
+${KSELFTEST_DIFF}
+\`\`\`"
+    fi
+
+    # Add JIRA link at the top if specified
     if [ -n "$JIRA_TICKET" ]; then
         PR_BODY="https://ciqinc.atlassian.net/browse/$JIRA_TICKET
 
