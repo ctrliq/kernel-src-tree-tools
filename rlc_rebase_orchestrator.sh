@@ -85,6 +85,34 @@ STATE_DIR="${PARENT_DIR}/.rlc_rebase_state"
 STATE_FILE="${STATE_DIR}/current.state"
 CURRENT_STAGE="init"
 
+# Rocky version configurations
+# Format: ROCKY_CONFIG_<version>_<property>
+# Supported properties: rolling_prefix, base_pattern, vm_name
+# These variables are used via indirect expansion: ${!varname}
+# shellcheck disable=SC2034
+ROCKY_CONFIG_10_rolling_prefix="rlc-10"
+# shellcheck disable=SC2034
+ROCKY_CONFIG_10_base_pattern="rocky10_"
+# shellcheck disable=SC2034
+ROCKY_CONFIG_10_vm_name="rocky10"
+
+# shellcheck disable=SC2034
+ROCKY_CONFIG_9_rolling_prefix="rlc-9"
+# shellcheck disable=SC2034
+ROCKY_CONFIG_9_base_pattern="rocky9_"
+# shellcheck disable=SC2034
+ROCKY_CONFIG_9_vm_name="rocky9"
+
+# shellcheck disable=SC2034
+ROCKY_CONFIG_8_rolling_prefix="rlc-8"
+# shellcheck disable=SC2034
+ROCKY_CONFIG_8_base_pattern="rocky8_"
+# shellcheck disable=SC2034
+ROCKY_CONFIG_8_vm_name="rocky8"
+
+# Priority order for version detection (newest first)
+ROCKY_VERSIONS="10 9 8"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -386,35 +414,50 @@ popd > /dev/null
 if [ -z "$ROLLING_PRODUCT" ]; then
     pushd "$ROLLING_REPO" > /dev/null
 
-    # Look for rolling product branches: rlc-X, sig-cloud-X
-    # Prioritize rlc-X over sig-cloud-X (newer naming)
-    DETECTED_PRODUCTS=$(git branch -a | grep -oE "(rlc-[0-9]+|sig-cloud-[0-9]+)/" | sed 's|/||' | sort -u)
+    # Look for rolling product branches using version priority order
+    # Check for rlc-X branches in order: 10, 9, 8
+    for ver in $ROCKY_VERSIONS; do
+        prefix_var="ROCKY_CONFIG_${ver}_rolling_prefix"
+        prefix="${!prefix_var}"
+        if git branch -a | grep -qE "${prefix}/" 2>/dev/null; then
+            ROLLING_PRODUCT="$prefix"
+            break
+        fi
+    done
 
-    # Pick the first one (prefer rlc- if available)
-    ROLLING_PRODUCT=$(echo "$DETECTED_PRODUCTS" | grep "^rlc-" | head -1)
+    # If no rlc-X found, show available branches
     if [ -z "$ROLLING_PRODUCT" ]; then
-        ROLLING_PRODUCT=$(echo "$DETECTED_PRODUCTS" | head -1)
+        log_error "Could not auto-detect rolling product."
+        log_info "Available remote branches:"
+        git branch -a | grep -E "remotes/origin/(rlc-|sig-cloud-)" | head -20 || echo "  (none found)"
+        log_info "Specify a product with -P (e.g., -P rlc-10, -P rlc-9, -P rlc-8)"
+        popd > /dev/null
+        exit 1
     fi
 
     popd > /dev/null
-
-    if [ -z "$ROLLING_PRODUCT" ]; then
-        log_error "Could not auto-detect rolling product. Please specify with -P (e.g., -P rlc-10)"
-        exit 1
-    fi
     log_info "Auto-detected rolling product: $ROLLING_PRODUCT"
 fi
 
-# Extract major version from rolling product (e.g., rlc-10 -> 10, sig-cloud-9 -> 9)
+# Extract major version from rolling product (e.g., rlc-10 -> 10)
 MAJOR_VERSION=$(echo "$ROLLING_PRODUCT" | grep -oE "[0-9]+$")
 if [ -z "$MAJOR_VERSION" ]; then
     log_error "Could not extract major version from rolling product: $ROLLING_PRODUCT"
+    log_info "Expected format: rlc-<version> (e.g., rlc-10, rlc-9, rlc-8)"
     exit 1
 fi
 
-# Auto-detect KVM name if not specified
+# Validate version is supported
+vm_name_var="ROCKY_CONFIG_${MAJOR_VERSION}_vm_name"
+if [ -z "${!vm_name_var}" ]; then
+    log_error "Unsupported Rocky version: $MAJOR_VERSION"
+    log_info "Supported versions: 8, 9, 10"
+    exit 1
+fi
+
+# Auto-detect KVM name if not specified (use version-specific default)
 if [ -z "$KVM_NAME" ]; then
-    KVM_NAME="rocky${MAJOR_VERSION}"
+    KVM_NAME="${!vm_name_var}"
     log_info "Auto-detected KVM name: $KVM_NAME"
 fi
 
@@ -422,18 +465,27 @@ fi
 if [ -z "$BASE_BRANCH" ]; then
     pushd "$ROLLING_REPO" > /dev/null
 
-    # Look for rockyX_Y branches (exactly rockyX_Y, not rockyX_Y_rebuild)
-    # Pattern: rocky10_1, rocky9_5, etc.
-    AVAILABLE_BASES=$(git branch -a | grep -oE "rocky${MAJOR_VERSION}_[0-9]+$" | sort -t_ -k2 -n | uniq | tail -1)
-    BASE_BRANCH="$AVAILABLE_BASES"
+    # Use version-specific base pattern
+    base_pattern_var="ROCKY_CONFIG_${MAJOR_VERSION}_base_pattern"
+    base_pattern="${!base_pattern_var}"
 
-    popd > /dev/null
+    # Look for rockyX_Y branches (exactly rockyX_Y, not rockyX_Y_rebuild)
+    # Pattern: rocky10_1, rocky9_5, rocky8_10, etc.
+    AVAILABLE_BASES=$(git branch -a | grep -oE "${base_pattern}[0-9]+$" | sort -t_ -k2 -n | uniq)
+    BASE_BRANCH=$(echo "$AVAILABLE_BASES" | tail -1)
 
     if [ -z "$BASE_BRANCH" ]; then
-        log_error "Could not auto-detect base branch for Rocky $MAJOR_VERSION. Please specify with -b"
+        log_error "Could not auto-detect base branch for Rocky $MAJOR_VERSION"
+        log_info "Available branches matching '${base_pattern}*':"
+        git branch -a | grep -E "remotes/origin/${base_pattern}" | head -10 || echo "  (none found)"
+        log_info "Specify a base branch with -b (e.g., -b ${base_pattern}1)"
+        popd > /dev/null
         exit 1
     fi
+
+    popd > /dev/null
     log_info "Auto-detected base branch: $BASE_BRANCH"
+    log_info "Available base branches: $(echo "$AVAILABLE_BASES" | tr '\n' ' ')"
 fi
 
 # Update and checkout base branch
