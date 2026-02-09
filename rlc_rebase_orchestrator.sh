@@ -626,9 +626,9 @@ if [ "$DRY_RUN" = false ] && [ -n "$NEW_ROLLING_BRANCH" ]; then
 
         pushd "$ROLLING_REPO" > /dev/null
 
-        # Push the rolling branch
-        log_info "Pushing $NEW_ROLLING_BRANCH..."
-        git push origin "$NEW_ROLLING_BRANCH"
+        # Push the rolling branch (with tags)
+        log_info "Pushing $NEW_ROLLING_BRANCH (with tags)..."
+        git push --follow-tags origin "$NEW_ROLLING_BRANCH"
 
         # Push the PR branch
         log_info "Pushing $NEW_PR_BRANCH..."
@@ -646,7 +646,33 @@ if [ "$DRY_RUN" = false ] && [ -n "$NEW_ROLLING_BRANCH" ]; then
     fi
 fi
 
+# PR fallback file function - creates MD file if gh pr create fails
+create_pr_fallback_file() {
+    local fallback_file="${LOG_DIR}/PR.${ROLLING_PRODUCT}.${KERNEL_VERSION}.md"
+    cat > "$fallback_file" << EOF
+# PR: ${PR_TITLE}
+
+**Repository:** ctrliq/kernel-src-tree
+**Base:** ${NEW_ROLLING_BRANCH}
+**Head:** ${NEW_PR_BRANCH}
+
+---
+
+${PR_BODY}
+
+---
+
+## To create manually:
+\`\`\`bash
+gh pr create --repo ctrliq/kernel-src-tree --base "${NEW_ROLLING_BRANCH}" --head "${NEW_PR_BRANCH}" --title "${PR_TITLE}" --body-file "${fallback_file}"
+\`\`\`
+EOF
+    log_info "PR content saved to: $fallback_file"
+    echo "$fallback_file"
+}
+
 # Create PR
+PR_URL=""
 if [ "$DRY_RUN" = false ] && [ -n "$NEW_ROLLING_BRANCH" ]; then
     if [ "$SKIP_PR" = false ] && [ "$SKIP_PUSH" = false ]; then
         log_info "Creating pull request..."
@@ -655,28 +681,39 @@ if [ "$DRY_RUN" = false ] && [ -n "$NEW_ROLLING_BRANCH" ]; then
         if command -v gh &> /dev/null; then
             pushd "$ROLLING_REPO" > /dev/null
 
-            gh pr create \
-                --repo ctrliq/kernel-src-tree \
-                --title "$PR_TITLE" \
-                --body "$PR_BODY" \
-                --base "$NEW_ROLLING_BRANCH" \
-                --head "$NEW_PR_BRANCH"
+            # Check for existing PR first
+            EXISTING_PR=$(gh pr list --repo ctrliq/kernel-src-tree --head "$NEW_PR_BRANCH" --base "$NEW_ROLLING_BRANCH" --state open --json number --jq '.[0].number // empty' 2>/dev/null || echo "")
+            if [ -n "${EXISTING_PR}" ]; then
+                log_warn "PR already exists: https://github.com/ctrliq/kernel-src-tree/pull/${EXISTING_PR}"
+                PR_URL="https://github.com/ctrliq/kernel-src-tree/pull/${EXISTING_PR}"
+            else
+                # Create new PR
+                if gh pr create \
+                    --repo ctrliq/kernel-src-tree \
+                    --title "$PR_TITLE" \
+                    --body "$PR_BODY" \
+                    --base "$NEW_ROLLING_BRANCH" \
+                    --head "$NEW_PR_BRANCH"; then
 
-            PR_URL=$(gh pr view --json url -q '.url' 2>/dev/null || echo "")
+                    PR_URL=$(gh pr view --json url -q '.url' 2>/dev/null || echo "")
+
+                    if [ -n "$PR_URL" ]; then
+                        log_success "Pull request created: $PR_URL"
+                    else
+                        log_success "Pull request created"
+                    fi
+                else
+                    log_error "gh pr create failed"
+                    FALLBACK_FILE=$(create_pr_fallback_file)
+                    log_info "You can create the PR manually using the fallback file: $FALLBACK_FILE"
+                fi
+            fi
 
             popd > /dev/null
-
-            if [ -n "$PR_URL" ]; then
-                log_success "Pull request created: $PR_URL"
-            else
-                log_success "Pull request created"
-            fi
         else
-            log_warn "gh CLI not found, skipping PR creation"
-            log_info "To create PR manually:"
-            echo "  Base branch: $NEW_ROLLING_BRANCH"
-            echo "  Head branch: $NEW_PR_BRANCH"
-            echo "  Title: $PR_TITLE"
+            log_warn "gh CLI not found, creating fallback file"
+            FALLBACK_FILE=$(create_pr_fallback_file)
+            log_info "Create PR manually using: $FALLBACK_FILE"
         fi
     else
         if [ "$SKIP_PR" = true ] || [ "$SKIP_PUSH" = true ]; then
@@ -713,6 +750,9 @@ log_success "Rolling Release Rebase completed!"
 echo "  Rolling Product:    $ROLLING_PRODUCT"
 echo "  New rolling branch: $NEW_ROLLING_BRANCH"
 echo "  New PR branch:      $NEW_PR_BRANCH"
+if [ -n "$PR_URL" ]; then
+echo "  PR URL:             $PR_URL"
+fi
 echo "  RR log file:        $RR_LOGFILE"
 echo "  Orchestrator log:   $ORCH_LOGFILE"
 printf "  Elapsed time:       %02d:%02d:%02d\n" "$HOURS" "$MINUTES" "$SECONDS"
