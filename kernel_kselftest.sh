@@ -21,8 +21,8 @@ run_kselftest() {
     SUDO_TARGETS=$1
     SKIP_TARGETS=$2
     mkdir -p $KSELFTEST_LOG_DIR
-    make -C tools/testing/selftests clean
-    make -C tools/testing/selftests SKIP_TARGETS="$SKIP_TARGETS"
+    make -j $(nproc) -C tools/testing/selftests clean
+    make -j $(nproc) -C tools/testing/selftests SKIP_TARGETS="$SKIP_TARGETS"
     for run in $(seq 1 $runs) ; do
         make -C tools/testing/selftests SKIP_TARGETS="$SUDO_TARGETS $SKIP_TARGETS" run_tests | tee $KSELFTEST_LOG_DIR/selftest-$(uname -r)-$run.log
         sudo make -C tools/testing/selftests TARGETS="$SUDO_TARGETS" run_tests | tee -a $KSELFTEST_LOG_DIR/selftest-$(uname -r)-$run.log
@@ -46,6 +46,18 @@ case $(uname -r) in
         echo
         SUDO_TARGETS="capabilities cpu-hotplug cpufreq efivars efivarfs fpu ipc intel_pstate kexec lib livepatch memfd memory-hotplug mptcp mqueue net netfilter sync sysctl timens timers vm x86 zram"
         SKIP_TARGETS=""
+        ;;
+    *5.14.0-570*|\
+    *5.14.0-611*)
+        echo
+        echo "Running 5.14.0-570/611 kselftests (el9_6/el9_7 - skipping pidfd)"
+        echo
+	#SUDO_TARGETS="zram"
+	#SUDO_TARGETS="binderfs capabilities cgroup cpu-hotplug cpufreq efivars efivarfs firmware fpu zram"
+	#SUDO_TARGETS="gpio ipc intel_pstate ir kexec lib livepatch memory-hotplug zram"
+	#SUDO_TARGETS="mptcp mqueue net netfilter sync sysctl timens timers vm x86 zram"
+        #SUDO_TARGETS="binderfs capabilities cgroup cpu-hotplug cpufreq efivars efivarfs firmware fpu gpio ipc intel_pstate ir kexec lib livepatch memory-hotplug mptcp mqueue netfilter sync sysctl timens timers vm x86 zram"
+        SKIP_TARGETS="lkdtm memfd net pidfd"
         ;;
     *5.14.0*)
         echo
