@@ -685,12 +685,23 @@ if [ "$SKIP_VM" = false ]; then
         # Build kernel
         log_info "Building kernel in VM..."
         if [ "$DRY_RUN" = false ]; then
+            # Temporarily disable exit-on-error because kernel_build.sh reboots the VM,
+            # which causes SSH to disconnect with exit code 255 - this is expected behavior
+            set +e
             ssh -o StrictHostKeyChecking=no "$VMIP" "cd /mnt/code/kernel-src-tree-build && ../kernel-src-tree-tools/kernel_build.sh" 2>&1 | tee -a "$LOGFILE"
             BUILD_STATUS=${PIPESTATUS[0]}
+            set -e
 
-            if [ "$BUILD_STATUS" -ne 0 ]; then
-                log_error "Kernel build failed"
+            # Exit code 255 means SSH connection closed (expected during reboot)
+            # Exit code 0 means success without reboot
+            # Any other non-zero exit code is a real failure
+            if [ "$BUILD_STATUS" -ne 0 ] && [ "$BUILD_STATUS" -ne 255 ]; then
+                log_error "Kernel build failed with exit code $BUILD_STATUS"
                 exit 1
+            fi
+
+            if [ "$BUILD_STATUS" -eq 255 ]; then
+                log_info "SSH connection closed (VM is rebooting - this is expected)"
             fi
             log_success "Kernel build completed"
             save_state "built"
