@@ -1,5 +1,10 @@
 __pycache__/
 
+# No AI 
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+
 # Ruff stuff:
 .ruff_cache/
 
