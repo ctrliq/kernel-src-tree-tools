@@ -154,7 +154,6 @@ install_kselftest_deps_10() {
     clang \
     conntrack-tools \
     curl \
-    dropwatch \
     dwarves \
     e2fsprogs \
     ethtool \
@@ -190,7 +189,6 @@ install_kselftest_deps_10() {
     rsync \
     socat \
     tcpdump \
-    teamd \
     traceroute \
     virtme-ng \
     wget
