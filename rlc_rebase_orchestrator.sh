@@ -400,8 +400,7 @@ log_info "Updating kernel-src-tree-tools..."
 pushd "$TOOLS_REPO" > /dev/null
 git fetch origin
 if [ "$DRY_RUN" = false ]; then
-    git checkout mainline 2>/dev/null || true
-    git pull origin mainline
+    git pull --rebase origin "$(git rev-parse --abrev-ref HEAD)" 2>/dev/null || log_warn "Could not pull latest changes for kernel-src-tree-tools (not critical)"
 fi
 popd > /dev/null
 
