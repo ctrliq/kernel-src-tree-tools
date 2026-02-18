@@ -771,10 +771,13 @@ if [ "$DRY_RUN" = false ] && [ -n "$NEW_ROLLING_BRANCH" ]; then
     fi
 
     # Get kselftest diff
+    # Run from kselftest-logs/ where kernel_kselftest.sh stores kselftest.*.log files
     KSELFTEST_SCRIPT="${PARENT_DIR}/kernel-tools/kernel_auto_rebuild/get_kselftest_diff.sh"
     KSELFTEST_DIFF=""
-    if [ -x "${KSELFTEST_SCRIPT}" ]; then
+    if [ -x "${KSELFTEST_SCRIPT}" ] && [ -d "${PARENT_DIR}/kselftest-logs" ]; then
+        pushd "${PARENT_DIR}/kselftest-logs" > /dev/null
         KSELFTEST_DIFF=$(bash "${KSELFTEST_SCRIPT}" 2>/dev/null || echo "")
+        popd > /dev/null
     fi
 
     # Build PR body (following PR #864 format)
