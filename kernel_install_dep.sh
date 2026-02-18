@@ -65,7 +65,7 @@ install_kselftest_deps_8() {
     jsonschema \
     netaddr \
     packaging \
-    pyftpdlib \
+    'pyftpdlib<2' \
     pyparsing \
     pytest \
     pyyaml \
