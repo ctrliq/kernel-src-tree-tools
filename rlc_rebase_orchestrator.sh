@@ -27,6 +27,7 @@
 #   -r, --no-pr          Skip creating PR
 #   --dry-run            Show what would be done without executing
 #   --resume             Resume from saved state
+#   --fips-override      Override FIPS check abort in rolling-release-update.py
 #   --build-only         Only run VM build phase (skip rebase, test, push, PR)
 #   --test-only          Only run kselftest phase (skip rebase, build, push, PR)
 #   --pr-only            Only create PR (skip rebase, build, test)
@@ -73,6 +74,7 @@ RESUME_MODE=false
 BUILD_ONLY=false
 TEST_ONLY=false
 PR_ONLY=false
+FIPS_OVERRIDE=false
 STARTTIME=$(date +%s)
 
 # Log file variables (initialized later after ROLLING_PRODUCT is determined)
@@ -316,6 +318,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -r|--no-pr)
             SKIP_PR=true
+            shift
+            ;;
+        --fips-override)
+            FIPS_OVERRIDE=true
             shift
             ;;
         --dry-run)
@@ -569,6 +575,7 @@ echo "  JIRA Ticket:        ${JIRA_TICKET:-'(not specified)'}"
 echo "  Skip VM Build:      $SKIP_VM"
 echo "  Skip Push:          $SKIP_PUSH"
 echo "  Skip PR:            $SKIP_PR"
+echo "  FIPS Override:      $FIPS_OVERRIDE"
 echo "  Dry Run:            $DRY_RUN"
 echo "======================================"
 echo ""
@@ -597,10 +604,12 @@ if [ "$DRY_RUN" = false ]; then
     pushd "$TOOLS_REPO" > /dev/null
 
     # Capture clean RR output to RR_LOGFILE, and also to orchestrator log
-    python3 rolling-release-update.py \
-        --repo "$ROLLING_REPO" \
-        --new-base-branch "$BASE_BRANCH" \
-        --old-rolling-branch "$OLD_BRANCH" \
+    RR_ARGS=(--repo "$ROLLING_REPO" --new-base-branch "$BASE_BRANCH" --old-rolling-branch "$OLD_BRANCH")
+    if [ "$FIPS_OVERRIDE" = true ]; then
+        RR_ARGS+=(--fips-override)
+    fi
+
+    python3 rolling-release-update.py "${RR_ARGS[@]}" \
         2>&1 | tee "$RR_LOGFILE" | tee -a "$ORCH_LOGFILE"
 
     RR_STATUS=${PIPESTATUS[0]}
@@ -617,7 +626,11 @@ if [ "$DRY_RUN" = false ]; then
     log_info "RR log file: $RR_LOGFILE"
     log_info "Orchestrator log: $ORCH_LOGFILE"
 else
-    log_info "[DRY RUN] Would run: python3 rolling-release-update.py --repo $ROLLING_REPO --new-base-branch $BASE_BRANCH --old-rolling-branch $OLD_BRANCH"
+    FIPS_FLAG=""
+    if [ "$FIPS_OVERRIDE" = true ]; then
+        FIPS_FLAG=" --fips-override"
+    fi
+    log_info "[DRY RUN] Would run: python3 rolling-release-update.py --repo $ROLLING_REPO --new-base-branch $BASE_BRANCH --old-rolling-branch $OLD_BRANCH${FIPS_FLAG}"
 fi
 else
     log_info "Skipping rebase phase (resuming from $CURRENT_STAGE or phase-only mode)"
