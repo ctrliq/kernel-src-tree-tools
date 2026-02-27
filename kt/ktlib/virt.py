@@ -68,7 +68,13 @@ class VmCommand(CommandRunner):
 
     @classmethod
     def start(cls, vm_name: str) -> str:
-        cls.run(command_type=VmCommandType.VIRSH, command=["start", vm_name])
+        try:
+            cls.run(command_type=VmCommandType.VIRSH, command=["start", vm_name])
+        except RuntimeError as e:
+            if "Domain is already active" in str(e):
+                pass
+            else:
+                raise e
 
     @classmethod
     def console(cls, vm_name: str):
