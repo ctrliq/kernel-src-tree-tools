@@ -270,7 +270,7 @@ class VmInstance:
         logging.debug("Running kselftests")
         script = str(config.base_path / Path("kernel-src-tree-tools") / Path("kernel_kselftest.sh"))
         output_file = self.kernel_workspace.folder.absolute() / Path(f"kselftest-{self.current_head_sha_short()}.log")
-        ssh_cmd = f"cd {self.kernel_workspace.src_worktree.folder.absolute()} &&  {script}"
+        ssh_cmd = f"cd {self.kernel_workspace.src_worktree.folder.absolute()} &&  sudo {script}"
 
         SshCommand.run_with_output(output_file=output_file, domain=self.domain, command=[ssh_cmd])
 
