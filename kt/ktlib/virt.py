@@ -67,7 +67,7 @@ class VmCommand(CommandRunner):
         cls.run(command_type=VmCommandType.VIRT_INSTALL, command=command)
 
     @classmethod
-    def start(cls, vm_name: str) -> str:
+    def start(cls, vm_name: str):
         try:
             cls.run(command_type=VmCommandType.VIRSH, command=["start", vm_name])
         except RuntimeError as e:
