@@ -50,10 +50,10 @@ def tokens_list_regex(tokens: List[str]):
 
 DEFAULT_KEYWORD_SEPARATOR = " "
 
-DEAFAULT_MULTILINE_BOUNDARY_SEEKER = basic_regex_seeker(r"(\n\s*\n|$)")
+DEAFAULT_MULTILINE_BOUNDARY_SEEKER = basic_regex_seeker(r"\n\s*\n")
 DEAFAULT_MULTILINE_BOUNDARY = "\n\n"
 
-DEAFAULT_SINGLELINE_BOUNDARY_SEEKER = basic_regex_seeker(r"(\n|$)")
+DEAFAULT_SINGLELINE_BOUNDARY_SEEKER = basic_regex_seeker(r"\n")
 DEAFAULT_SINGLELINE_BOUNDARY = "\n"
 
 
@@ -80,7 +80,8 @@ class CiqTag(Enum):
     UPSTREAM_DIFF = (["upstream-diff"], True)
 
     def __init__(self, keywords: List[str], multiline: bool = False):
-        assert len(keywords) > 0
+        if len(keywords) == 0:
+            raise ValueError("Keywords lits must have at least one elemnt")
         self.arg_name = keywords[0]
         self.keywords = keywords
         self.default_keyword = keywords[0]
@@ -108,11 +109,16 @@ class CiqTag(Enum):
 
 class TagPosition:
     def __init__(self, tag, keyword_start, keyword_end, separator_end, boundary_start, boundary_end):
-        assert keyword_start >= 0
-        assert keyword_start <= keyword_end
-        assert keyword_end <= separator_end
-        assert separator_end <= boundary_start
-        assert boundary_start < boundary_end
+        if not keyword_start >= 0:
+            raise ValueError("keyword_start < 0")
+        if not keyword_start <= keyword_end:
+            raise ValueError("keyword_start > keyword_end")
+        if not keyword_end <= separator_end:
+            raise ValueError("keyword_end > separator_end")
+        if not separator_end <= boundary_start:
+            raise ValueError("separator_end > boundary_start")
+        if not boundary_start < boundary_end:
+            raise ValueError("boundary_start >= boundary_end")
         self.tag = tag
         self.keyword_start = keyword_start
         self.keyword_end = keyword_end
@@ -162,20 +168,6 @@ def get_first_tag_position(message: str, tag: CiqTag, empty_on_no_value: bool = 
         return None
 
 
-def get_indexed_tag_position(
-    message: str, tag: CiqTag, index: int = 0, empty_on_no_value: bool = False
-) -> Optional[TagPosition]:
-    assert index >= 0
-    cursor = 0
-    i = 0
-    while position := get_first_tag_position(message[cursor:], tag, empty_on_no_value=empty_on_no_value):
-        if i == index:
-            return position.shift(cursor)
-        cursor += position.boundary_end
-        i += 1
-    return None
-
-
 def get_tag_positions(message: str, tag: CiqTag, empty_on_no_value: bool = False) -> List[TagPosition]:
     cursor = 0
     result = []
@@ -204,26 +196,34 @@ def indent_tag_value(value: str, indent: int) -> str:
 
 
 def format_tag(
-    tag: CiqTag, keyword_and_separator: str, value: str, trim: bool, indent_arg: int, wrap: bool, wrap_width: int
+    tag: CiqTag,
+    keyword_and_separator: str,
+    value: str,
+    indent_arg: int,
+    wrap: bool,
+    wrap_width: int,
+    suspend_ignore_warns: bool = False,
 ) -> str:
     """Preserve _keyword_and_separator in the returned property"""
-    trimmed_value = value.strip() if trim else value
     if tag.multiline:
         indent = indent_arg if indent_arg >= 0 else len(keyword_and_separator)
         if wrap:
             n = len(keyword_and_separator)
             wrapped_value = textwrap.fill(
-                "x" * n + trimmed_value, width=wrap_width, initial_indent="", subsequent_indent=" " * indent
+                "x" * n + value, width=wrap_width, initial_indent="", subsequent_indent=" " * indent
             )
             formatted_value = wrapped_value[n:]
         else:
-            formatted_value = indent_tag_value(trimmed_value, indent)
+            formatted_value = indent_tag_value(value, indent)
     else:
-        if indent_arg != 0:
-            logger.warning(f"Non-zero indenting requested for a single line property '{tag.arg_name}'. " + "Ignoring")
-        if wrap:
-            logger.warning(f"Wrapping requested for a single line property '{tag.arg_name}'. " + "Ignoring")
-        formatted_value = trimmed_value
+        if not suspend_ignore_warns:
+            if indent_arg != 0:
+                logger.warning(
+                    f"Non-zero indenting requested for a single line property '{tag.arg_name}'. " + "Ignoring"
+                )
+            if wrap:
+                logger.warning(f"Wrapping requested for a single line property '{tag.arg_name}'. " + "Ignoring")
+        formatted_value = value
     return formatted_value
 
 
@@ -231,7 +231,8 @@ def omit_prefixing_empty_lines(string: str) -> str:
     # Match all the prefixing empty lines '([\s^\n]*\n)*', then everything else '(.*)'
     # The empty lines will be omitted.
     m = re.match(r"^(([\s^\n]*\n)*)(.*)$", string, re.DOTALL)
-    assert m is not None
+    if m is None:
+        raise ValueError("Input string does not match the expected format.")
     return m[3]
 
 
@@ -257,10 +258,17 @@ def dedent_text(text: str) -> str:
 
 # Elementary operations ############################################################################
 
-DEFAULT_TRIM = False
 DEFAULT_INDENT = 0
 DEFAULT_WRAP = False
 DEFAULT_WRAP_WIDTH = 72
+
+
+def tag_value_boundary_check(tag, value):
+    if m := tag.boundary_seeker(value):
+        logger.warning(
+            f"Value '{value}' for tag '{tag}' contains boundary "
+            + f"'{value[m[0] : m[1]]}'. The tag won't parse properly"
+        )
 
 
 class TagInstance:
@@ -268,11 +276,15 @@ class TagInstance:
         self._tag_type = tag_type
         self._keyword = keyword
         self._separator = separator
-        self._value = value
         self._boundary = boundary
+        self.set_value(value)
 
     def get_keyword_and_sep(self):
         return self._keyword + self._separator
+
+    def set_value(self, value: str):
+        tag_value_boundary_check(self._tag_type, value)
+        self._value = value
 
     def __str__(self):
         return self._keyword + self._separator + self._value + self._boundary
@@ -283,7 +295,8 @@ class CiqMsg:
         """
         message: Git commit's message as printed with the %B format
         """
-        assert message is not None
+        if message is None:
+            raise ValueError("message cannot be None")
         self._message_subject, body = split_subject_body(message)
         groups_of_consecutive_tags = list(
             mit.split_when(get_all_tags_positions(body), lambda p, n: p.boundary_end < n.keyword_start)
@@ -349,16 +362,24 @@ class CiqMsg:
         value: str,
         index: int = 0,
         *,
-        trim: bool = DEFAULT_TRIM,
         indent: int = DEFAULT_INDENT,
         wrap: bool = DEFAULT_WRAP,
         wrap_width: int = DEFAULT_WRAP_WIDTH,
+        suspend_ignore_warns: bool = False,
     ) -> bool:
         indexed_tag_inst = self.get_indexed_tag_inst(modified_tag, index)
         if indexed_tag_inst:
             _, tag_inst = indexed_tag_inst
-            tag_inst._value = format_tag(
-                modified_tag, tag_inst.get_keyword_and_sep(), value, trim, indent, wrap, wrap_width
+            tag_inst.set_value(
+                format_tag(
+                    modified_tag,
+                    tag_inst.get_keyword_and_sep(),
+                    value,
+                    indent,
+                    wrap,
+                    wrap_width,
+                    suspend_ignore_warns=suspend_ignore_warns,
+                )
             )
             return True
         else:
@@ -369,10 +390,10 @@ class CiqMsg:
         inserted_tag: CiqTag,
         value: str,
         *,
-        trim: bool = DEFAULT_TRIM,
         indent: int = DEFAULT_INDENT,
         wrap: bool = DEFAULT_WRAP,
         wrap_width: int = DEFAULT_WRAP_WIDTH,
+        suspend_ignore_warns: bool = False,
     ) -> bool:
         # Find the first property which is 'greater' than inserted_tag in the sense that it appears
         # later in the CiqTag enum dictating the order in which properties are expected to occur
@@ -393,10 +414,10 @@ class CiqMsg:
                     inserted_tag,
                     inserted_tag.default_keyword + inserted_tag.default_separator,
                     value,
-                    trim,
                     indent,
                     wrap,
                     wrap_width,
+                    suspend_ignore_warns=suspend_ignore_warns,
                 ),
                 inserted_tag.default_value_boundary,
             ),
@@ -410,14 +431,22 @@ class CiqMsg:
         value: str,
         index: int = 0,
         *,
-        trim: bool = DEFAULT_TRIM,
         indent: int = DEFAULT_INDENT,
         wrap: bool = DEFAULT_WRAP,
         wrap_width: int = DEFAULT_WRAP_WIDTH,
+        suspend_ignore_warns: bool = False,
     ) -> bool:
         return self.modify_tag_value(
-            tag, value, index, trim=trim, indent=indent, wrap=wrap, wrap_width=wrap_width
-        ) or self.add_tag(tag, value, trim=trim, indent=indent, wrap=wrap, wrap_width=wrap_width)
+            tag,
+            value,
+            index,
+            indent=indent,
+            wrap=wrap,
+            wrap_width=wrap_width,
+            suspend_ignore_warns=suspend_ignore_warns,
+        ) or self.add_tag(
+            tag, value, indent=indent, wrap=wrap, wrap_width=wrap_width, suspend_ignore_warns=suspend_ignore_warns
+        )
 
     def delete_tag(self, deleted_tag: CiqTag, index: int = 0) -> bool:
         indexed_tag_inst = self.get_indexed_tag_inst(deleted_tag, index)
@@ -437,12 +466,10 @@ __all__ = [
     "TagPosition",
     # Low-level functions, may be useful in some scenarios
     "get_first_tag_position",
-    "get_indexed_tag_position",
     "get_tag_positions",
     "get_all_tags_positions",
     # Core high-level functionality
     "CiqMsg",
-    "DEFAULT_TRIM",
     "DEFAULT_INDENT",
     "DEFAULT_WRAP",
     "DEFAULT_WRAP_WIDTH",

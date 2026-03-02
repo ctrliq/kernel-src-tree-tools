@@ -38,13 +38,13 @@ def open_output(filename, **rest):
 def process_in_out(input, output, result_to_output_map, ciq_msg_method, *method_args_pos, **method_args_key):
     with open_input(input) as in_file:
         input_str = "".join(in_file.readlines())
+    msg = ciq_tag.CiqMsg(input_str)
+    ret, out = result_to_output_map(msg, ciq_msg_method(msg, *method_args_pos, **method_args_key))
+    if out:
         with open_output(output) as out_file:
-            msg = ciq_tag.CiqMsg(input_str)
-            ret, out = result_to_output_map(msg, ciq_msg_method(msg, *method_args_pos, **method_args_key))
-            if out:
-                print(out, file=out_file, end="")
-            if ret != 0:
-                raise CmdException(ret)
+            print(out, file=out_file, end="")
+    if ret != 0:
+        raise CmdException(ret)
 
 
 def parse_tag(tag_name):
@@ -96,8 +96,8 @@ multi-line formatted texts)
 
     TRIM = args(
         "--trim",
-        "-t",
-        flag_value=(not ciq_tag.DEFAULT_TRIM),
+        "-x",
+        flag_value=True,
         help="""
 Trim the value from whitespaces at the beginning and end before inserting to a commit message as a
 tag value. Useful when reading the tag value from a file, which can have trailing newlines
@@ -127,6 +127,33 @@ indenting equal to the width of the tag keyword.
         type=int,
         default=ciq_tag.DEFAULT_WRAP_WIDTH,
         help="If WRAP flag is given wrap the value text to this many columns.",
+    )
+
+    DELETE = args(
+        "--delete",
+        "-d",
+        type=str,
+        multiple=True,
+        help="<tag> to delete, exactly as would be done with the 'delete' command.",
+    )
+
+    SET = args(
+        "--set",
+        "-s",
+        type=(str, str),
+        multiple=True,
+        help="<tag> <value> pair to set in the message, exactly as would be done with the 'set' command.",
+    )
+
+    SET_FROM_FILE = args(
+        "--set-from-file",
+        "-S",
+        type=(str, str),
+        multiple=True,
+        help="""
+<tag> <file> pair, where <file> contains the <value> to set for the <tag> in the message, exactly as
+would be done with the 'set' command using --val-from-file option.
+""",
     )
 
     def __init__(self, positional, keyword):
@@ -198,7 +225,6 @@ def command_modify(tag, value, index, val_from_file, trim, indent, wrap, wrap_wi
         parse_tag(tag),
         read_value(value, val_from_file, trim),
         index,
-        trim=trim,
         indent=indent,
         wrap=wrap,
         wrap_width=wrap_width,
@@ -227,7 +253,6 @@ def command_add(tag, value, val_from_file, trim, indent, wrap, wrap_width):
         ciq_tag.CiqMsg.add_tag,
         parse_tag(tag),
         read_value(value, val_from_file, trim),
-        trim=trim,
         indent=indent,
         wrap=wrap,
         wrap_width=wrap_width,
@@ -258,7 +283,6 @@ def command_set(tag, value, index, val_from_file, trim, indent, wrap, wrap_width
         parse_tag(tag),
         read_value(value, val_from_file, trim),
         index,
-        trim=trim,
         indent=indent,
         wrap=wrap,
         wrap_width=wrap_width,
@@ -281,6 +305,63 @@ def command_delete(tag, index):
         ciq_tag.CiqMsg.delete_tag,
         ciq_tag.CiqTag.get_by_arg_name(tag),
         index,
+    )
+
+
+@cli.command(
+    "seq",
+    help="""
+Set / delete multiple tags in sequence. The tags and their values (where applicable) are specified
+with options --delete, --set and --set-from-file, which can be provided multiple times. First
+process all --delete tags, then --set, then --set-from-file. Within the same group the tags are
+processed in the order given on the command line. For the --set-from-file tags the trimming is
+always on. The --wrap-width and --indent options apply to all tags specified by --set and
+--set-from-file.
+""",
+    epilog="<tag> ::= " + " | ".join(t.arg_name for t in ciq_tag.CiqTag),
+)
+@click.option(*ClickDef.DELETE.positional, **ClickDef.DELETE.keyword)
+@click.option(*ClickDef.SET.positional, **ClickDef.SET.keyword)
+@click.option(*ClickDef.SET_FROM_FILE.positional, **ClickDef.SET_FROM_FILE.keyword)
+@click.option(*ClickDef.INDENT.positional, **ClickDef.INDENT.keyword)
+@click.option(*ClickDef.WRAP.positional, **ClickDef.WRAP.keyword)
+@click.option(*ClickDef.WRAP_WIDTH.positional, **ClickDef.WRAP_WIDTH.keyword)
+def command_seq(delete, set, set_from_file, indent, wrap, wrap_width):
+    def process(msg):
+        modified = True
+        for delete_tag in delete:
+            modified = msg.delete_tag(parse_tag(delete_tag)) or modified
+        for set_tag, set_value in set:
+            modified = (
+                msg.set_tag(
+                    parse_tag(set_tag),
+                    read_value(set_value, False, False),
+                    indent=indent,
+                    wrap=wrap,
+                    wrap_width=wrap_width,
+                    suspend_ignore_warns=True,
+                )
+                or modified
+            )
+        for fset_tag, fset_value in set_from_file:
+            modified = (
+                msg.set_tag(
+                    parse_tag(fset_tag),
+                    read_value(fset_value, True, True),
+                    indent=indent,
+                    wrap=wrap,
+                    wrap_width=wrap_width,
+                    suspend_ignore_warns=True,
+                )
+                or modified
+            )
+        return msg, modified
+
+    process_in_out(
+        OPTIONS["input"],
+        OPTIONS["output"],
+        setter_map,
+        process,
     )
 
 
