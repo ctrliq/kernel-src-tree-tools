@@ -9,6 +9,7 @@ kernels:
     dist_git_root: dist-git-tree-cbr
     dist_git_branch: cbr79-7
     mock_config: centos-cbr79
+    automated: false
 
   lts-8.6:
     src_tree_root: kernel-src-tree
@@ -16,6 +17,7 @@ kernels:
     dist_git_root: dist-git-tree-lts
     dist_git_branch: lts86-8
     mock_config: rocky-lts86
+    automated: true
 
   lts-9.2:
     src_tree_root: kernel-src-tree
@@ -23,6 +25,7 @@ kernels:
     dist_git_root: dist-git-tree-lts
     dist_git_branch: lts92-9
     mock_config: rocky-lts92
+    automated: true
 
   lts-9.4:
     src_tree_root: kernel-src-tree
@@ -30,6 +33,7 @@ kernels:
     dist_git_root: dist-git-tree-lts
     dist_git_branch: lts94-9
     mock_config: rocky-lts94
+    automated: true
 
   lts-9.6:
     src_tree_root: kernel-src-tree
@@ -37,6 +41,7 @@ kernels:
     dist_git_root: dist-git-tree-lts
     dist_git_branch: lts96-9
     mock_config: rocky-lts96
+    automated: true
 
   fipslegacy-8.6:
     src_tree_root: kernel-src-tree
@@ -44,3 +49,4 @@ kernels:
     dist_git_root: dist-git-tree-fips
     dist_git_branch: fips-compliant8
     mock_config: rocky-lts86-fips
+    automated: false
