@@ -32,6 +32,7 @@ class Config:
     images_dir: Path
 
     ssh_key: Path
+    user: str
 
     DEFAULT: ClassVar = {
         "base_path": "~/ciq",
@@ -39,14 +40,15 @@ class Config:
         "images_source_dir": "~/ciq/default_test_images",
         "images_dir": "~/ciq/tmp/virt-images",
         "ssh_key": "~/.ssh/id_ed25519_generic.pub",
+        "user": os.environ["USER"],
     }
 
     @classmethod
     def from_str_dict(cls, data: dict[str, str]):
-        # Transform the str values to Path
-        new_data = {k: Path(v).expanduser() for k, v in data.items()}
-
-        if not all(v.is_absolute() for v in new_data.values()):
+        # Transform the str values to Path except for user
+        non_path_keys = {"user"}
+        new_data = {k: (Path(v).expanduser() if k not in non_path_keys else v) for k, v in data.items()}
+        if not all(v.is_absolute() for k, v in new_data.items() if k not in non_path_keys):
             raise ValueError("all paths should be absolute; check your config")
 
         return cls(**new_data)
