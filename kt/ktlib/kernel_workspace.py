@@ -1,5 +1,4 @@
 import logging
-import os
 from dataclasses import dataclass
 
 from git import GitCommandError, Repo
@@ -171,7 +170,7 @@ class KernelWorkspace:
             name = name + "_" + extra
 
         folder = config.kernels_dir / Path(name)
-        user = os.environ["USER"]
+        user = config.user
         default_remote = "origin"
 
         dist_folder = folder / Path(Constants.DIST_TREE)

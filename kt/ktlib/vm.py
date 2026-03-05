@@ -138,10 +138,10 @@ class Vm:
             data = yaml.safe_load(f)
 
         # replace placeholders with user data
-        data["users"][0]["name"] = os.environ["USER"]
+        data["users"][0]["name"] = config.user
 
         # password remains the default for now
-        data["chpasswd"]["list"][0] = f"{os.environ['USER']}:test"
+        data["chpasswd"]["list"][0] = f"{config.user}:test"
 
         # ssh key
         with open(config.ssh_key) as f:
@@ -157,8 +157,8 @@ class Vm:
 
         # Because $HOME is the same as the host, during boot, cloud-init
         # sees the home dir already exists and root remains the owner
-        # change it to $USER
-        data["runcmd"][0][1] = f"{os.environ['USER']}:{os.environ['USER']}"
+        # change it to {config.user}
+        data["runcmd"][0][1] = f"{config.user}:{config.user}"
         data["runcmd"][0][2] = os.environ["HOME"]
 
         # Install packages needed later
