@@ -37,6 +37,8 @@ class KernelInfo:
 
     mock_config: str
 
+    automated: bool
+
 
 @dataclass
 class KernelsInfo:
