@@ -35,3 +35,6 @@ py-modules = []
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["kt*"]
+
+[tool.setuptools.package-data]
+"kt" = ["data/*.yaml"]
