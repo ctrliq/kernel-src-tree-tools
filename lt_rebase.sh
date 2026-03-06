@@ -148,4 +148,68 @@ if [ ! -z "$REPO_STATUS" ]; then
     git commit -m "[CIQ] $(git describe --tags --abbrev=0) - rebased configs"
 fi
 
+SPEC_FILE="./SPECS/kernel.spec"
+if [ -f "$SPEC_FILE" ] ; then
+    UPSTREAM_TAG=$(git describe --tags --abbrev=0)
+    if [ -z "$UPSTREAM_TAG" ]; then
+        echo "ERROR: Could not determine upstream tag via git describe. Cannot update spec."
+        exit 1
+    fi
+    FULL_KERNEL_VERSION=${UPSTREAM_TAG#v}
+    TAG_VERSION="${FULL_KERNEL_VERSION}-1"
+    NEW_TAG="ciq_kernel-${TAG_VERSION}"
+    DISTLOCALVERSION=${DISTLOCALVERSION:-".1.0.0"}
+    DIST=${DIST:-".el9_clk"}
+    SPECTARFILE_RELEASE=${TAG_VERSION}$DISTLOCALVERSION$DIST
 
+    echo "Updating kernel.spec version variables and changelog..."
+
+    # Update version variables
+    sed -i -e "s/^%define specrpmversion .*/%define specrpmversion $FULL_KERNEL_VERSION/" \
+           -e "s/^%define specversion .*/%define specversion $FULL_KERNEL_VERSION/" \
+           -e "s/^%define tarfile_release .*/%define tarfile_release $SPECTARFILE_RELEASE/" \
+           "$SPEC_FILE"
+
+    # Generate changelog
+    # Extract major version (e.g., 6 from 6.12.74)
+    MAJOR_VERSION=${FULL_KERNEL_VERSION%%.*}
+    CHANGELOG_DATE=$(date '+%a %b %d %Y')
+    CHANGELOG_HEADER="* $CHANGELOG_DATE $(git config user.name) <$(git config user.email)> - ${TAG_VERSION}${DISTLOCALVERSION}${DIST}"
+    TEMP_CHANGELOG=$(mktemp)
+    TEMP_COMMENTS=$(mktemp)
+
+    # Full changelog for new kernel version or initial spec update
+    echo "$CHANGELOG_HEADER" > "$TEMP_CHANGELOG"
+    echo "-- Rebased changes for Linux $FULL_KERNEL_VERSION (https://github.com/ctrliq/kernel-src-tree/releases/tag/$NEW_TAG)" >> "$TEMP_CHANGELOG"
+    git log --no-merges --pretty=format:"-- %s (%an)" ${UPSTREAM_TAG}..HEAD >> "$TEMP_CHANGELOG"
+    echo "" >> "$TEMP_CHANGELOG"
+    echo "-- Linux $FULL_KERNEL_VERSION (https://cdn.kernel.org/pub/linux/kernel/v$MAJOR_VERSION.x/ChangeLog-$FULL_KERNEL_VERSION)" >> "$TEMP_CHANGELOG"
+    echo "" >> "$TEMP_CHANGELOG"
+    echo "" >> "$TEMP_CHANGELOG"
+
+    # Extract trailing comments (lines starting with # after %changelog)
+    awk '/^%changelog$/,0 {if (/^#/ || /^###/) print}' "$SPEC_FILE" > "$TEMP_COMMENTS"
+
+    # Rebuild changelog section
+    if ! grep -q '^%changelog$' "$SPEC_FILE"; then
+        echo "ERROR: %changelog section not found in $SPEC_FILE. Cannot update spec."
+        exit 1
+    fi
+    # Remove everything from %changelog onwards
+    sed -i '/^%changelog$/q' "$SPEC_FILE"
+
+    # Add new changelog entry
+    cat "$TEMP_CHANGELOG" >> "$SPEC_FILE"
+
+    # Add trailing comments if any
+    if [ -s "$TEMP_COMMENTS" ]; then
+        cat "$TEMP_COMMENTS" >> "$SPEC_FILE"
+    fi
+
+    rm -f "$TEMP_CHANGELOG" "$TEMP_COMMENTS"
+
+    git add "$SPEC_FILE"
+    git commit -m "[CIQ] $(git describe --tags --abbrev=0) - updated spec"
+
+    echo "Spec file updated successfully"
+fi
