@@ -156,8 +156,11 @@ if [ -f "$SPEC_FILE" ] ; then
     DISTLOCALVERSION=${DISTLOCALVERSION:-".1.0.0"}
     DIST=${DIST:-".el9_clk"}
 
-    # Path to update_lt_spec.py
-    UPDATE_LT_SPEC="../kernel-tools/update_lt_spec.py"
+    # Get the directory where this script is located
+    SCRIPT_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
+
+    # Path to update_lt_spec.py in the same directory as this script
+    UPDATE_LT_SPEC="$SCRIPT_DIR/update_lt_spec.py"
 
     if [ ! -f "$UPDATE_LT_SPEC" ]; then
         echo "ERROR: update_lt_spec.py not found at $UPDATE_LT_SPEC"
