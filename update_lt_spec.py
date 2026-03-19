@@ -17,28 +17,26 @@ except ImportError:
     print("ERROR: GitPython is not installed. Install it with: pip install GitPython")
     sys.exit(1)
 
-from ciq_helpers import last_git_tag
+from ciq_helpers import get_git_user, last_git_tag, parse_kernel_tag, replace_spec_changelog
 
 
-def calculate_lt_rebase_versions(upstream_tag, distlocalversion, dist):
+def calculate_lt_rebase_versions(kernel_version, distlocalversion, dist):
     """Calculate version strings for LT rebase.
 
     Arguments:
-    upstream_tag: Git tag from git describe (e.g., 'v6.12.74')
+    kernel_version: Kernel version string (e.g., '6.12.74')
     distlocalversion: DISTLOCALVERSION string (e.g., '.1.0.0')
     dist: DIST string (e.g., '.el9_clk')
 
     Returns:
     Tuple of (full_kernel_version, tag_version, spectarfile_release, new_tag, major_version)
     """
-    # Remove 'v' prefix if present
-    full_kernel_version = upstream_tag.lstrip("v")
-    tag_version = f"{full_kernel_version}-1"
+    tag_version = f"{kernel_version}-1"
     spectarfile_release = f"{tag_version}{distlocalversion}{dist}"
     new_tag = f"ciq_kernel-{tag_version}"
-    major_version = full_kernel_version.split(".")[0]
+    major_version = kernel_version.split(".")[0]
 
-    return full_kernel_version, tag_version, spectarfile_release, new_tag, major_version
+    return kernel_version, tag_version, spectarfile_release, new_tag, major_version
 
 
 def update_spec_file(
@@ -77,8 +75,7 @@ def update_spec_file(
 
     # Get git user info, checking both repo-level and global config
     try:
-        name = srcgit.git.config("user.name")
-        email = srcgit.git.config("user.email")
+        name, email = get_git_user(srcgit)
     except git.exc.GitCommandError as e:
         print("ERROR: Failed to read git config. Please ensure user.name and user.email are configured.")
         print('  Run: git config --global user.name "Your Name"')
@@ -86,66 +83,41 @@ def update_spec_file(
         print(f"  Error details: {e}")
         sys.exit(1)
 
-    new_spec = []
+    # Update version variables
+    updated_spec = []
     for line in spec:
-        # Update version variables
         if line.startswith("%define specrpmversion"):
             line = f"%define specrpmversion {full_kernel_version}"
-            new_spec.append(line)
-            continue
-
-        if line.startswith("%define specversion"):
+        elif line.startswith("%define specversion"):
             line = f"%define specversion {full_kernel_version}"
-            new_spec.append(line)
-            continue
-
-        if line.startswith("%define tarfile_release"):
+        elif line.startswith("%define tarfile_release"):
             line = f"%define tarfile_release {spectarfile_release}"
-            new_spec.append(line)
-            continue
+        updated_spec.append(line)
 
-        # Replace changelog
-        if line.startswith("%changelog"):
-            new_spec.append(line)
+    # Build changelog entry lines
+    changelog_date = time.strftime("%a %b %d %Y")
+    changelog_lines = [
+        f"* {changelog_date} {name} <{email}> - {lt_tag_version}{distlocalversion}{dist}",
+        f"-- Rebased changes for Linux {full_kernel_version} (https://github.com/ctrliq/kernel-src-tree/releases/tag/{lt_new_tag})",
+    ]
 
-            # Generate changelog header
-            changelog_date = time.strftime("%a %b %d %Y")
-            changelog_header = f"* {changelog_date} {name} <{email}> - {lt_tag_version}{distlocalversion}{dist}"
-            new_spec.append(changelog_header)
-            new_spec.append(
-                f"-- Rebased changes for Linux {full_kernel_version} (https://github.com/ctrliq/kernel-src-tree/releases/tag/{lt_new_tag})"
-            )
+    try:
+        commit_logs = srcgit.git.log("--no-merges", "--pretty=format:-- %s (%an)", f"{upstream_tag}..HEAD")
+        for log_line in commit_logs.split("\n"):
+            if log_line.strip():
+                changelog_lines.append(log_line)
+    except git.exc.GitCommandError as e:
+        print(f"ERROR: Failed to get git log from {upstream_tag}..HEAD: {e}")
+        sys.exit(1)
 
-            # Add all commits from upstream tag to HEAD
-            try:
-                commit_logs = srcgit.git.log("--no-merges", "--pretty=format:-- %s (%an)", f"{upstream_tag}..HEAD")
-                for log_line in commit_logs.split("\n"):
-                    if log_line.strip():
-                        new_spec.append(log_line)
-            except git.exc.GitCommandError as e:
-                print(f"ERROR: Failed to get git log from {upstream_tag}..HEAD: {e}")
-                sys.exit(1)
+    changelog_lines += [
+        "",
+        f"-- Linux {full_kernel_version} (https://cdn.kernel.org/pub/linux/kernel/v{lt_major_version}.x/ChangeLog-{full_kernel_version})",
+        "",
+        "",
+    ]
 
-            new_spec.append("")
-            new_spec.append(
-                f"-- Linux {full_kernel_version} (https://cdn.kernel.org/pub/linux/kernel/v{lt_major_version}.x/ChangeLog-{full_kernel_version})"
-            )
-            new_spec.append("")
-            new_spec.append("")
-
-            # Preserve trailing comments from original spec file
-            in_changelog = False
-            for orig_line in spec:
-                if orig_line.startswith("%changelog"):
-                    in_changelog = True
-                    continue
-                if in_changelog and (orig_line.startswith("#") or orig_line.startswith("###")):
-                    new_spec.append(orig_line)
-
-            # Skip the rest of the original changelog
-            break
-
-        new_spec.append(line)
+    new_spec = replace_spec_changelog(updated_spec, changelog_lines)
 
     # Write the updated spec file
     try:
@@ -189,25 +161,15 @@ if __name__ == "__main__":
     print(f"Using last tag: {upstream_tag}")
 
     # Validate tag format (should be like 'v6.12.74' or '6.12.74')
-    tag_without_v = upstream_tag.lstrip("v")
-    tag_parts = tag_without_v.split(".")
-    if len(tag_parts) != 3:
-        print(f"ERROR: Invalid tag format: {upstream_tag}")
-        print("  Expected format: vX.Y.Z or X.Y.Z (e.g., v6.12.74)")
-        sys.exit(1)
-
-    # Validate that parts are numeric
     try:
-        for part in tag_parts:
-            int(part)
-    except ValueError:
-        print(f"ERROR: Invalid tag format: {upstream_tag}")
-        print("  Tag version parts must be numeric")
+        kernel_version = parse_kernel_tag(upstream_tag)
+    except ValueError as e:
+        print(f"ERROR: {e}")
         sys.exit(1)
 
     # Calculate version strings
     full_kernel_version, tag_version, spectarfile_release, new_tag, major_version = calculate_lt_rebase_versions(
-        upstream_tag, args.distlocalversion, args.dist
+        kernel_version, args.distlocalversion, args.dist
     )
 
     print("\nLT Rebase Version Information:")

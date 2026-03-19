@@ -344,3 +344,61 @@ def last_git_tag(repo):
     if not r:
         raise Exception("Could not find last tag for", repo)
     return r
+
+
+def get_git_user(repo):
+    """Get the git user name and email from a repo's config.
+
+    Returns a (name, email) tuple.
+    Raises git.exc.GitCommandError if user.name or user.email are not configured.
+    """
+    name = repo.git.config("user.name")
+    email = repo.git.config("user.email")
+    return name, email
+
+
+def parse_kernel_tag(tag):
+    """Validate and parse a kernel version tag like 'v6.12.74' or '6.12.74'.
+
+    Returns the version string without the 'v' prefix (e.g., '6.12.74').
+    Raises ValueError if the tag format is invalid.
+    """
+    tag_without_v = tag.lstrip("v")
+    tag_parts = tag_without_v.split(".")
+    if len(tag_parts) != 3:
+        raise ValueError(f"Invalid kernel tag format: {tag} (expected vX.Y.Z or X.Y.Z, e.g., v6.12.74)")
+    try:
+        for part in tag_parts:
+            int(part)
+    except ValueError:
+        raise ValueError(f"Invalid kernel tag format: {tag} (version parts must be numeric)")
+    return tag_without_v
+
+
+def replace_spec_changelog(spec_lines, new_changelog_lines):
+    """Replace the %changelog section in spec_lines with new_changelog_lines.
+
+    Preserves any trailing comment lines (starting with #) from the original changelog.
+    Returns a new list of lines.
+    """
+    # Collect trailing comments from the original changelog section
+    trailing_comments = []
+    in_changelog = False
+    for line in spec_lines:
+        if line.startswith("%changelog"):
+            in_changelog = True
+            continue
+        if in_changelog and (line.startswith("#")):
+            trailing_comments.append(line)
+
+    # Build new spec, replacing everything from %changelog onward
+    new_spec = []
+    for line in spec_lines:
+        if line.startswith("%changelog"):
+            new_spec.append(line)
+            new_spec.extend(new_changelog_lines)
+            new_spec.extend(trailing_comments)
+            break
+        new_spec.append(line)
+
+    return new_spec
