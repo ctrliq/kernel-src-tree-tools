@@ -34,6 +34,24 @@ def get_commit_maps_from_backport_data(repo_path, branch, common_tag):
     from 'commit <sha>' lines in commit bodies. This ensures we correctly identify
     duplicates even when different CIQ commits reference the same upstream commit.
 
+    KNOWN BEHAVIOR - Two-phase commit ordering:
+        The commit_map is populated in two phases which causes commits to appear
+        in a different order than their original git log (chronological) order:
+
+        Phase 1: get_backport_commit_data() inserts commits that have an upstream
+            'commit <sha>' reference in their body, in git log order (newest first).
+        Phase 2: A second git log pass adds any remaining commits (CIQ-only commits
+            without upstream references, e.g. github actions, config changes) that
+            were not captured in Phase 1.
+
+        Because Python dicts preserve insertion order, Phase 2 commits are appended
+        after all Phase 1 commits. When reversed() is called at cherry-pick time,
+        Phase 2 (CIQ-only) commits end up at the beginning of the sequence rather
+        than in their original chronological position relative to Phase 1 commits.
+
+        This means CIQ-only commits (like "github actions: ..." commits) will be
+        cherry-picked earlier in the sequence than they appeared on the source branch.
+
     Returns:
         commit_map: dict mapping CIQ commit SHA -> upstream commit SHA (or "" if no upstream)
         commit_map_rev: dict mapping upstream commit SHA -> CIQ commit SHA
