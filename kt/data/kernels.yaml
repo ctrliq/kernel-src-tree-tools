@@ -9,7 +9,7 @@ kernels:
     dist_git_root: dist-git-tree-cbr
     dist_git_branch: cbr79-7
     mock_config: centos-cbr79
-    automated: false
+    automated: true
 
   lts-8.6:
     src_tree_root: kernel-src-tree
