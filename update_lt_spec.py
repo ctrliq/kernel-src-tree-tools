@@ -111,7 +111,6 @@ def update_spec_file(
         sys.exit(1)
 
     changelog_lines += [
-        "",
         f"-- Linux {full_kernel_version} (https://cdn.kernel.org/pub/linux/kernel/v{lt_major_version}.x/ChangeLog-{full_kernel_version})",
         "",
         "",
