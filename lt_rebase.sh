@@ -148,9 +148,22 @@ if [ ! -z "$REPO_STATUS" ]; then
     git commit -m "[CIQ] $(git describe --tags --abbrev=0) - rebased configs"
 fi
 
-SPEC_FILE="./ciq/SPECS/kernel.spec"
-if [ -f "$SPEC_FILE" ] ; then
-    echo "Updating kernel.spec version variables and changelog..."
+# Check for versioned spec file first, then fall back to kernel.spec
+VERSIONED_SPEC_FILE="./ciq/SPECS/kernel-clk${KERNEL_VERSION}.spec"
+GENERIC_SPEC_FILE="./ciq/SPECS/kernel.spec"
+
+if [ -f "$VERSIONED_SPEC_FILE" ]; then
+    SPEC_FILE="$VERSIONED_SPEC_FILE"
+    echo "Found versioned spec file: $SPEC_FILE"
+elif [ -f "$GENERIC_SPEC_FILE" ]; then
+    SPEC_FILE="$GENERIC_SPEC_FILE"
+    echo "Found spec file: $SPEC_FILE"
+else
+    SPEC_FILE=""
+fi
+
+if [ -n "$SPEC_FILE" ]; then
+    echo "Updating spec file version variables and changelog..."
 
     # Set default values for DISTLOCALVERSION and DIST if not set
     DISTLOCALVERSION=${DISTLOCALVERSION:-".1.0.0"}
