@@ -14,6 +14,7 @@ kernels = {
         "dist_git_branch": "dist-branch",
         "mock_config": "test-mock-config",
         "automated": True,
+        "kernel_type": "lts",
     }
 }
 

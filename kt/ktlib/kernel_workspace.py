@@ -1,11 +1,12 @@
 import logging
+import re
 from dataclasses import dataclass
 
 from git import GitCommandError, Repo
 from pathlib3x import Path
 
 from kt.ktlib.config import Config
-from kt.ktlib.kernels import KernelInfo
+from kt.ktlib.kernels import KernelInfo, KernelType
 from kt.ktlib.util import Constants
 
 
@@ -16,6 +17,7 @@ class RepoWorktree:
     remote: str
     remote_branch: str
     local_branch: str
+    kernel_type: KernelType
 
     @classmethod
     def load_from_filepath(cls, folder: Path):
@@ -32,12 +34,18 @@ class RepoWorktree:
 
         local_branch = repo.active_branch.name
 
+        if KernelType.RLC in str(folder.absolute()):
+            kernel_type = KernelType.RLC
+        else:
+            kernel_type = KernelType.LTS
+
         return cls(
             source_root=source_root,
             folder=folder,
             remote=remote,
             remote_branch=remote_branch,
             local_branch=local_branch,
+            kernel_type=kernel_type,
         )
 
     def setup(self):
@@ -72,6 +80,10 @@ class RepoWorktree:
         """
         logging.info("update")
         repo = Repo(self.folder)
+        if self.kernel_type == KernelType.RLC:
+            if repo.active_branch.name != self.local_branch:
+                print(f"New RLC version from {repo.active_branch.name} to {self.local_branch}")
+                repo.git.checkout(self.local_branch)
 
         repo.remotes.origin.pull(rebase=True)
 
@@ -184,7 +196,14 @@ class KernelWorkspace:
             remote=default_remote,
             remote_branch=kernel_info.dist_git_branch,
             local_branch=dist_local_branch,
+            kernel_type=kernel_info.kernel_type,
         )
+
+        if kernel_info.kernel_type == KernelType.RLC:
+            print(f"{kernel_info.src_tree_branch}")
+            kernel_info.src_tree_branch = cls._get_newest_remote_branch(
+                folder=kernel_info.src_tree_root.folder, pattern=kernel_info.src_tree_branch
+            )
 
         src_folder = folder / Path(Constants.SRC_TREE)
         src_local_branch = f"{{{user}}}_{kernel_info.src_tree_branch}"
@@ -197,6 +216,7 @@ class KernelWorkspace:
             remote=default_remote,
             remote_branch=kernel_info.src_tree_branch,
             local_branch=src_local_branch,
+            kernel_type=kernel_info.kernel_type,
         )
 
         return cls(
@@ -204,6 +224,23 @@ class KernelWorkspace:
             dist_worktree=dist_worktree,
             src_worktree=src_worktree,
         )
+
+    def _get_newest_remote_branch(folder, pattern, remote="origin"):
+        regex = re.compile("^" + re.escape(pattern).replace("X", r"(\d+)").replace("Y", r"(\d+)") + "$")
+
+        repo = Repo(folder)
+        best = None  # (X, Y, ref_name)
+
+        for ref in repo.remote(remote).refs:
+            short = ref.name.split("/", 1)[1]  # strip "origin/"
+            m = regex.match(short)
+            if not m:
+                continue
+            x, y = int(m.group(1)), int(m.group(2))
+            if best is None or (x, y) > (best[0], best[1]):
+                best = (x, y, short)
+
+        return best[2] if best else None
 
     def setup(self):
         # Make sure the folder is created

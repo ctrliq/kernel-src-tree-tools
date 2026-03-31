@@ -1,10 +1,12 @@
 common_repos:
   dist-git-tree-fips: git@gitlab.com:ctrl-iq-public/fips/src/kernel.git
+  dist-git-tree-rlc: git@gitlab.com:ctrl-iq-public/sig-cloud-next/next/src/kernel.git
   kernel-src-tree: https://github.com/ctrliq/kernel-src-tree.git
   kernel-src-tree-tools: https://github.com/ctrliq/kernel-src-tree-tools.git
 
 kernels:
   cbr-7.9:
+    kernel_type: lts
     src_tree_root: kernel-src-tree
     src_tree_branch: ciqcbr7_9
     dist_git_root: dist-git-tree-cbr
@@ -13,6 +15,7 @@ kernels:
     automated: true
 
   lts-8.6:
+    kernel_type: lts
     src_tree_root: kernel-src-tree
     src_tree_branch: ciqlts8_6
     dist_git_root: dist-git-tree-lts
@@ -21,6 +24,7 @@ kernels:
     automated: true
 
   lts-9.2:
+    kernel_type: lts
     src_tree_root: kernel-src-tree
     src_tree_branch: ciqlts9_2
     dist_git_root: dist-git-tree-lts
@@ -29,6 +33,7 @@ kernels:
     automated: true
 
   lts-9.6:
+    kernel_type: lts
     src_tree_root: kernel-src-tree
     src_tree_branch: ciqlts9_6
     dist_git_root: dist-git-tree-lts
@@ -37,9 +42,34 @@ kernels:
     automated: true
 
   fipslegacy-8.6:
+    kernel_type: lts
     src_tree_root: kernel-src-tree
     src_tree_branch: fips-legacy-8-compliant/4.18.0-425.13.1
     dist_git_root: dist-git-tree-fips
     dist_git_branch: fips-compliant8
     mock_config: rocky-lts86-fips
+    automated: false
+  rlc-8:
+    kernel_type: rlc
+    src_tree_root: kernel-src-tree
+    src_tree_branch: rlc-8/4.18.0-553.X.Y.el8_10
+    dist_git_root: dist-git-tree-rlc
+    dist_git_branch: next-r8
+    mock_config: rocky-8-sigcloud
+    automated: false
+  rlc-9:
+    kernel_type: rlc
+    src_tree_root: kernel-src-tree
+    src_tree_branch: rlc-9/5.14.0-611.X.Y.el9_7
+    dist_git_root: dist-git-tree-rlc
+    dist_git_branch: next-r9
+    mock_config: rocky-9-sigcloud
+    automated: false
+  rlc-10:
+    kernel_type: rlc
+    src_tree_root: kernel-src-tree
+    src_tree_branch: rlc-10/6.12.0-124.X.Y.el10_1
+    dist_git_root: dist-git-tree-rlc
+    dist_git_branch: next-r10
+    mock_config: rocky-10-sigcloud
     automated: false

@@ -8,6 +8,7 @@ class Constants:
     KERNELS = "kernels"
 
     BASE_URL = "https://dl.rockylinux.org/vault/rocky"
+    BASE_URL_RLC = "https://download.rockylinux.org/pub/rocky"
     QCOW2_TRAIL = "GenericCloud.latest.x86_64.qcow2"
     DEFAULT_VM_BASE = "Rocky"
 
