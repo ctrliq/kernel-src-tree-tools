@@ -166,7 +166,7 @@ if [ -n "$SPEC_FILE" ]; then
     echo "Updating spec file version variables and changelog..."
 
     # Set default values for DISTLOCALVERSION and DIST if not set
-    DISTLOCALVERSION=${DISTLOCALVERSION:-".1.0.0"}
+    DISTLOCALVERSION=${DISTLOCALVERSION:-".1"}
     DIST=${DIST:-".el9_clk"}
 
     # Get the directory where this script is located
