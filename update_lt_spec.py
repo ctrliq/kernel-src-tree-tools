@@ -86,7 +86,7 @@ def update_spec_file(
     el_version = None
     for line in spec:
         if line.startswith("%define el_version"):
-            match = re.search(r'%define el_version\s+(\d+)', line)
+            match = re.search(r"%define el_version\s+(\d+)", line)
             if match:
                 el_version = match.group(1)
                 break
@@ -157,9 +157,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Update kernel.spec for LT kernel rebase")
     parser.add_argument("--srcgit", required=True, help="Location of srcgit repository")
     parser.add_argument("--spec-file", required=True, help="Path to kernel.spec file")
-    parser.add_argument(
-        "--buildid", default=".1", help="Build ID (default: .1)"
-    )
+    parser.add_argument("--buildid", default=".1", help="Build ID (default: .1)")
     parser.add_argument("--commit", action="store_true", help="Commit the spec file changes to git")
     args = parser.parse_args()
 
@@ -191,8 +189,8 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Calculate version strings
-    full_kernel_version, tag_version, kernel_major_minor, kernel_patch, buildid, new_tag, major_version = calculate_lt_rebase_versions(
-        kernel_version, args.buildid
+    full_kernel_version, tag_version, kernel_major_minor, kernel_patch, buildid, new_tag, major_version = (
+        calculate_lt_rebase_versions(kernel_version, args.buildid)
     )
 
     print("\nLT Rebase Version Information:")
