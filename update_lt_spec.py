@@ -20,51 +20,60 @@ except ImportError:
 from ciq_helpers import get_git_user, last_git_tag, parse_kernel_tag, replace_spec_changelog
 
 
-def calculate_lt_rebase_versions(kernel_version, distlocalversion, dist):
+def calculate_lt_rebase_versions(kernel_version, buildid):
     """Calculate version strings for LT rebase.
 
     Arguments:
     kernel_version: Kernel version string (e.g., '6.12.74')
-    distlocalversion: DISTLOCALVERSION string (e.g., '.1.0.0')
-    dist: DIST string (e.g., '.el9_clk')
+    buildid: Build ID string (e.g., '.1')
 
     Returns:
-    Tuple of (full_kernel_version, tag_version, spectarfile_release, new_tag, major_version)
+    Tuple of (full_kernel_version, tag_version, kernel_major_minor, kernel_patch,
+              buildid, new_tag, major_version)
     """
-    tag_version = f"{kernel_version}-1"
-    spectarfile_release = f"{tag_version}{distlocalversion}{dist}"
-    new_tag = f"ciq_kernel-{tag_version}"
-    major_version = kernel_version.split(".")[0]
+    # Parse kernel version into components
+    version_parts = kernel_version.split(".")
+    if len(version_parts) != 3:
+        raise ValueError(f"Invalid kernel version format: {kernel_version}")
 
-    return kernel_version, tag_version, spectarfile_release, new_tag, major_version
+    kernel_major_minor = f"{version_parts[0]}.{version_parts[1]}"
+    kernel_patch = version_parts[2]
+    major_version = version_parts[0]
+
+    tag_version = f"{kernel_version}-1"
+    new_tag = f"ciq_kernel-{tag_version}"
+
+    return kernel_version, tag_version, kernel_major_minor, kernel_patch, buildid, new_tag, major_version
 
 
 def update_spec_file(
     spec_path,
     full_kernel_version,
-    spectarfile_release,
+    kernel_major_minor,
+    kernel_patch,
+    buildid,
     lt_tag_version,
     lt_new_tag,
     lt_major_version,
     upstream_tag,
     srcgit,
-    distlocalversion,
-    dist,
 ):
     """Update the spec file with new version information and changelog.
 
     Arguments:
     spec_path: Path to kernel.spec file
     full_kernel_version: Full kernel version (e.g., '6.12.77')
-    spectarfile_release: Value for tarfile_release variable
+    kernel_major_minor: Major.minor version (e.g., '6.12')
+    kernel_patch: Patch version (e.g., '77')
+    buildid: Build ID (e.g., '.1')
     lt_tag_version: Tag version (e.g., '6.12.77-1')
     lt_new_tag: New tag name (e.g., 'ciq_kernel-6.12.77-1')
     lt_major_version: Major version number (e.g., '6')
     upstream_tag: Git tag name (e.g., 'v6.12.77')
     srcgit: Git repository object
-    distlocalversion: DISTLOCALVERSION string
-    dist: DIST string
     """
+    import re
+
     # Read the spec file
     try:
         with open(spec_path, "r") as f:
@@ -72,6 +81,22 @@ def update_spec_file(
     except IOError as e:
         print(f"ERROR: Failed to read spec file {spec_path}: {e}")
         sys.exit(1)
+
+    # Extract el_version from spec file
+    el_version = None
+    for line in spec:
+        if line.startswith("%define el_version"):
+            match = re.search(r'%define el_version\s+(\d+)', line)
+            if match:
+                el_version = match.group(1)
+                break
+
+    if not el_version:
+        print("ERROR: Could not find %define el_version in spec file")
+        sys.exit(1)
+
+    # Construct dist string from el_version for changelog
+    dist = f".el{el_version}"
 
     # Get git user info, checking both repo-level and global config
     try:
@@ -83,21 +108,21 @@ def update_spec_file(
         print(f"  Error details: {e}")
         sys.exit(1)
 
-    # Update version variables
+    # Update version variables - updating base variables, not el_version
     updated_spec = []
     for line in spec:
-        if line.startswith("%define specrpmversion"):
-            line = f"%define specrpmversion {full_kernel_version}"
-        elif line.startswith("%define specversion"):
-            line = f"%define specversion {full_kernel_version}"
-        elif line.startswith("%define tarfile_release"):
-            line = f"%define tarfile_release {spectarfile_release}"
+        if line.startswith("%define kernel_major_minor"):
+            line = f"%define kernel_major_minor {kernel_major_minor}"
+        elif line.startswith("%define kernel_patch"):
+            line = f"%define kernel_patch {kernel_patch}"
+        elif line.startswith("%define buildid"):
+            line = f"%define buildid {buildid}"
         updated_spec.append(line)
 
     # Build changelog entry lines
     changelog_date = time.strftime("%a %b %d %Y")
     changelog_lines = [
-        f"* {changelog_date} {name} <{email}> - {lt_tag_version}{distlocalversion}{dist}",
+        f"* {changelog_date} {name} <{email}> - {lt_tag_version}{buildid}{dist}",
         f"-- Rebased changes for Linux {full_kernel_version} (https://github.com/ctrliq/kernel-src-tree/releases/tag/{lt_new_tag})",
     ]
 
@@ -133,9 +158,8 @@ if __name__ == "__main__":
     parser.add_argument("--srcgit", required=True, help="Location of srcgit repository")
     parser.add_argument("--spec-file", required=True, help="Path to kernel.spec file")
     parser.add_argument(
-        "--distlocalversion", default=".1.0.0", help="DISTLOCALVERSION for tarfile_release (default: .1.0.0)"
+        "--buildid", default=".1", help="Build ID (default: .1)"
     )
-    parser.add_argument("--dist", default=".el9_clk", help="DIST for tarfile_release (default: .el9_clk)")
     parser.add_argument("--commit", action="store_true", help="Commit the spec file changes to git")
     args = parser.parse_args()
 
@@ -167,14 +191,16 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Calculate version strings
-    full_kernel_version, tag_version, spectarfile_release, new_tag, major_version = calculate_lt_rebase_versions(
-        kernel_version, args.distlocalversion, args.dist
+    full_kernel_version, tag_version, kernel_major_minor, kernel_patch, buildid, new_tag, major_version = calculate_lt_rebase_versions(
+        kernel_version, args.buildid
     )
 
     print("\nLT Rebase Version Information:")
     print(f"  Full Kernel Version: {full_kernel_version}")
+    print(f"  Kernel Major.Minor: {kernel_major_minor}")
+    print(f"  Kernel Patch: {kernel_patch}")
+    print(f"  Build ID: {buildid}")
     print(f"  Tag Version: {tag_version}")
-    print(f"  Spec tarfile_release: {spectarfile_release}")
     print(f"  New Tag: {new_tag}")
     print(f"  Major Version: {major_version}\n")
 
@@ -189,14 +215,14 @@ if __name__ == "__main__":
     update_spec_file(
         spec_path,
         full_kernel_version,
-        spectarfile_release,
+        kernel_major_minor,
+        kernel_patch,
+        buildid,
         tag_version,
         new_tag,
         major_version,
         upstream_tag,
         srcgit,
-        args.distlocalversion,
-        args.dist,
     )
 
     print("Spec file updated successfully")

@@ -165,9 +165,8 @@ fi
 if [ -n "$SPEC_FILE" ]; then
     echo "Updating spec file version variables and changelog..."
 
-    # Set default values for DISTLOCALVERSION and DIST if not set
-    DISTLOCALVERSION=${DISTLOCALVERSION:-".1"}
-    DIST=${DIST:-".el9_clk"}
+    # Set default value for BUILDID if not set
+    BUILDID=${BUILDID:-".1"}
 
     # Get the directory where this script is located
     SCRIPT_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
@@ -184,8 +183,7 @@ if [ -n "$SPEC_FILE" ]; then
     "$UPDATE_LT_SPEC" \
         --srcgit . \
         --spec-file "$SPEC_FILE" \
-        --distlocalversion "$DISTLOCALVERSION" \
-        --dist "$DIST" \
+        --buildid "$BUILDID" \
         --commit
 
     if [ $? -ne 0 ]; then
