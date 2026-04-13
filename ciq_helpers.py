@@ -357,16 +357,36 @@ def get_git_user(repo):
     return name, email
 
 
-def parse_kernel_tag(tag):
-    """Validate and parse a kernel version tag like 'v6.12.74' or '6.12.74'.
+def parse_ciq_tag_release(tag):
+    """Extract the release counter N from a CIQ tag like 'ciq_kernel-6.18.21-1'.
 
-    Returns the version string without the 'v' prefix (e.g., '6.12.74').
+    Returns the integer N.
+    Raises ValueError if the tag is not in ciq_kernel-X.Y.Z-N format.
+    """
+    m = re.match(r"^ciq_kernel-\d+\.\d+\.\d+-(\d+)$", tag)
+    if not m:
+        raise ValueError(
+            f"Cannot parse CIQ release from tag: {tag!r} (expected 'ciq_kernel-X.Y.Z-N', e.g. 'ciq_kernel-6.18.21-1')"
+        )
+    return int(m.group(1))
+
+
+def parse_kernel_tag(tag):
+    """Validate and parse a kernel version tag.
+
+    Accepts: 'v6.12.74', '6.12.74', or 'ciq_kernel-6.12.74-N'.
+
+    Returns the version string (e.g., '6.12.74').
     Raises ValueError if the tag format is invalid.
     """
-    tag_without_v = tag.lstrip("v")
+    m = re.match(r"^ciq_kernel-(\d+\.\d+\.\d+)-\d+$", tag)
+    if m:
+        return m.group(1)
+
+    tag_without_v = tag.removeprefix("v")
     tag_parts = tag_without_v.split(".")
     if len(tag_parts) != 3:
-        raise ValueError(f"Invalid kernel tag format: {tag} (expected vX.Y.Z or X.Y.Z, e.g., v6.12.74)")
+        raise ValueError(f"Invalid kernel tag format: {tag} (expected vX.Y.Z, X.Y.Z, or ciq_kernel-X.Y.Z-N)")
     try:
         for part in tag_parts:
             int(part)
@@ -380,6 +400,7 @@ def replace_spec_changelog(spec_lines, new_changelog_lines):
 
     Preserves any trailing comment lines (starting with #) from the original changelog.
     Returns a new list of lines.
+    Raises ValueError if %changelog is not found.
     """
     # Collect trailing comments from the original changelog section
     trailing_comments = []
@@ -393,12 +414,65 @@ def replace_spec_changelog(spec_lines, new_changelog_lines):
 
     # Build new spec, replacing everything from %changelog onward
     new_spec = []
+    found = False
     for line in spec_lines:
         if line.startswith("%changelog"):
+            found = True
             new_spec.append(line)
             new_spec.extend(new_changelog_lines)
             new_spec.extend(trailing_comments)
             break
         new_spec.append(line)
 
+    if not found:
+        raise ValueError("Could not find %changelog section in spec file")
+
     return new_spec
+
+
+def prepend_spec_changelog(spec_lines, new_entry_lines):
+    """Prepend new_entry_lines at the top of the %changelog section.
+
+    The existing changelog entries are preserved below the new entry.
+    Returns a new list of lines.
+    Raises ValueError if %changelog is not found.
+    """
+    new_spec = []
+    found = False
+    for i, line in enumerate(spec_lines):
+        if line.startswith("%changelog"):
+            found = True
+            new_spec.append(line)
+            new_spec.extend(new_entry_lines)
+            new_spec.extend(spec_lines[i + 1 :])
+            break
+        new_spec.append(line)
+
+    if not found:
+        raise ValueError("Could not find %changelog section in spec file")
+
+    return new_spec
+
+
+def _read_spec_define(spec_lines, name, value_pattern):
+    """Return the value of a %define directive from spec file lines.
+
+    Builds a regex from name and value_pattern (a raw regex string matching the value),
+    scans spec_lines for the first match, and returns the captured value string.
+    Raises ValueError if the directive is not found.
+    """
+    pattern = re.compile(rf"^%define {re.escape(name)}\s+({value_pattern})")
+    for line in spec_lines:
+        m = pattern.match(line)
+        if m:
+            return m.group(1)
+    raise ValueError(f"Could not find %define {name} in spec file")
+
+
+def read_spec_el_version(spec_lines):
+    """Read the EL version number from spec file lines.
+
+    Returns the el_version string (e.g., '9').
+    Raises ValueError if not found.
+    """
+    return _read_spec_define(spec_lines, "el_version", r"\d+")
