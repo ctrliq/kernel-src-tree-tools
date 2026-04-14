@@ -6,10 +6,10 @@ import re
 import subprocess
 import sys
 import textwrap
-from typing import Optional
 
 from ciq_helpers import (
     CIQ_find_fixes_in_mainline,
+    CIQ_find_matching_cve,
     CIQ_get_commit_body,
     CIQ_hash_exists_in_ref,
     CIQ_run_git,
@@ -65,24 +65,6 @@ def extract_cve_from_message(msg):
     if match:
         return match.group(1).upper()
     return None
-
-
-def run_cve_search(vulns_repo, kernel_repo, query) -> tuple[bool, Optional[str]]:
-    """
-    Run the cve_search script from the vulns repo.
-    Returns (success, output_message).
-    """
-    cve_search_path = os.path.join(vulns_repo, "scripts", "cve_search")
-    if not os.path.exists(cve_search_path):
-        raise RuntimeError(f"cve_search script not found at {cve_search_path}")
-
-    env = os.environ.copy()
-    env["CVEKERNELTREE"] = kernel_repo
-
-    result = subprocess.run([cve_search_path, query], text=True, capture_output=True, check=False, env=env)
-
-    # cve_search outputs results to stdout
-    return result.returncode == 0, result.stdout.strip()
 
 
 def main():
@@ -197,17 +179,9 @@ def main():
                 fix_cves = {}
                 if args.check_cves:
                     for fix_hash, fix_display in fixes:
-                        try:
-                            success, cve_output = run_cve_search(vulns_repo, args.repo, fix_hash)
-                            if success:
-                                # Parse the CVE from the result
-                                match = re.search(r"(CVE-\d{4}-\d+)\s+is assigned to git id", cve_output)
-                                if match:
-                                    bugfix_cve = match.group(1)
-                                    fix_cves[fix_hash] = bugfix_cve
-                        except (RuntimeError, subprocess.SubprocessError) as e:
-                            # Log a warning instead of silently ignoring errors when checking bugfix CVEs
-                            print(f"Warning: Failed to check CVE for bugfix commit {fix_hash}: {e}", file=sys.stderr)
+                        bugfix_cve = CIQ_find_matching_cve(vulns_repo=vulns_repo, kernel_repo=args.repo, hash_=fix_hash)
+                        if bugfix_cve:
+                            fix_cves[fix_hash] = bugfix_cve
 
                 # Build the fixes display text with CVE info
                 fixes_lines = []
@@ -248,48 +222,21 @@ def main():
 
                 # Check if the upstream commit has a CVE associated with it
                 try:
-                    success, cve_output = run_cve_search(vulns_repo, args.repo, uhash)
-                    if success:
-                        # Parse the output to get the CVE from the result
-                        # Expected format: "CVE-2024-35962 is assigned to git id
-                        # 65acf6e0501ac8880a4f73980d01b5d27648b956"
-                        match = re.search(r"(CVE-\d{4}-\d+)\s+is assigned to git id", cve_output)
-                        if match:
-                            found_cve = match.group(1)
-
-                            if cve_id:
-                                # PR commit has a CVE reference - check if it matches
-                                if found_cve != cve_id:
-                                    any_findings = True
-                                    if args.markdown:
-                                        out_lines.append(
-                                            f"- ❌ PR commit `{pr_commit_desc}` references `{cve_id}` but  \n"
-                                            f"  upstream commit `{short_uhash}` is associated with `{found_cve}`\n"
-                                        )
-                                    else:
-                                        prefix = "[CVE-MISMATCH] "
-                                        header = (
-                                            f"{prefix}PR commit {pr_commit_desc} references {cve_id} but "
-                                            f"upstream commit {short_uhash} is associated with {found_cve}"
-                                        )
-                                        out_lines.append(
-                                            wrap_paragraph(
-                                                header, width=80, initial_indent="", subsequent_indent=" " * len(prefix)
-                                            )
-                                        )
-                                        out_lines.append("")  # blank line
-                            else:
-                                # PR commit doesn't reference a CVE, but upstream has one
+                    found_cve = CIQ_find_matching_cve(vulns_repo=vulns_repo, kernel_repo=args.repo, hash_=uhash)
+                    if found_cve:
+                        if cve_id:
+                            # PR commit has a CVE reference - check if it matches
+                            if found_cve != cve_id:
                                 any_findings = True
                                 if args.markdown:
                                     out_lines.append(
-                                        f"- ⚠️ PR commit `{pr_commit_desc}` does not reference a CVE but  \n"
+                                        f"- ❌ PR commit `{pr_commit_desc}` references `{cve_id}` but  \n"
                                         f"  upstream commit `{short_uhash}` is associated with `{found_cve}`\n"
                                     )
                                 else:
-                                    prefix = "[CVE-MISSING] "
+                                    prefix = "[CVE-MISMATCH] "
                                     header = (
-                                        f"{prefix}PR commit {pr_commit_desc} does not reference a CVE but "
+                                        f"{prefix}PR commit {pr_commit_desc} references {cve_id} but "
                                         f"upstream commit {short_uhash} is associated with {found_cve}"
                                     )
                                     out_lines.append(
@@ -298,6 +245,26 @@ def main():
                                         )
                                     )
                                     out_lines.append("")  # blank line
+                        else:
+                            # PR commit doesn't reference a CVE, but upstream has one
+                            any_findings = True
+                            if args.markdown:
+                                out_lines.append(
+                                    f"- ⚠️ PR commit `{pr_commit_desc}` does not reference a CVE but  \n"
+                                    f"  upstream commit `{short_uhash}` is associated with `{found_cve}`\n"
+                                )
+                            else:
+                                prefix = "[CVE-MISSING] "
+                                header = (
+                                    f"{prefix}PR commit {pr_commit_desc} does not reference a CVE but "
+                                    f"upstream commit {short_uhash} is associated with {found_cve}"
+                                )
+                                out_lines.append(
+                                    wrap_paragraph(
+                                        header, width=80, initial_indent="", subsequent_indent=" " * len(prefix)
+                                    )
+                                )
+                                out_lines.append("")  # blank line
                     else:
                         # The upstream commit has no CVE assigned
                         if cve_id:

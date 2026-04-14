@@ -7,6 +7,8 @@ import logging
 import os
 import re
 import subprocess
+import sys
+from typing import Optional
 
 import git
 
@@ -476,3 +478,43 @@ def read_spec_el_version(spec_lines):
     Raises ValueError if not found.
     """
     return _read_spec_define(spec_lines, "el_version", r"\d+")
+
+
+def run_cve_search(vulns_repo, kernel_repo, query) -> tuple[bool, Optional[str]]:
+    """
+    Run the cve_search script from the vulns repo.
+    Returns (success, output_message).
+    """
+
+    cve_search_path = os.path.join(vulns_repo, "scripts", "cve_search")
+    if not os.path.exists(cve_search_path):
+        raise RuntimeError(f"cve_search script not found at {cve_search_path}")
+
+    env = os.environ.copy()
+    env["CVEKERNELTREE"] = kernel_repo
+
+    result = subprocess.run([cve_search_path, query], text=True, capture_output=True, check=False, env=env)
+
+    # cve_search outputs results to stdout
+    return result.returncode == 0, result.stdout.strip()
+
+
+def CIQ_find_matching_cve(vulns_repo, kernel_repo, hash_) -> str | None:
+    """
+    Returns the CVE (i.e CVE-2023-526) if there is a corresponding CVE to that commit hash.
+    Otherwise it returns None
+    """
+
+    cve = None
+    try:
+        success, cve_output = run_cve_search(vulns_repo, kernel_repo, hash_)
+        if success:
+            # Parse the CVE from the result
+            match = re.search(r"(CVE-\d{4}-\d+)\s+is assigned to git id", cve_output)
+            if match:
+                cve = match.group(1)
+    except (RuntimeError, subprocess.SubprocessError) as e:
+        # Log a warning instead of silently ignoring errors when checking bugfix CVEs
+        print(f"Warning: Failed to check CVE for bugfix commit {hash_}: {e}", file=sys.stderr)
+
+    return cve
