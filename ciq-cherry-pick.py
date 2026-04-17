@@ -8,7 +8,7 @@ import traceback
 
 import git
 
-from ciq_helpers import (
+from kt.ktlib.ciq_helpers import (
     CIQ_cherry_pick_commit_standardization,
     CIQ_commit_exists_in_current_branch,
     CIQ_find_fixes_in_mainline_current_branch,

@@ -18,7 +18,7 @@ except ImportError:
     print("ERROR: GitPython is not installed. Install it with: pip install GitPython")
     sys.exit(1)
 
-from ciq_helpers import (
+from kt.ktlib.ciq_helpers import (
     get_git_user,
     last_git_tag,
     parse_ciq_tag_release,

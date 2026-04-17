@@ -7,7 +7,7 @@ import subprocess
 import sys
 import textwrap
 
-from ciq_helpers import (
+from kt.ktlib.ciq_helpers import (
     CIQ_find_fixes_in_mainline,
     CIQ_find_matching_cve,
     CIQ_get_commit_body,

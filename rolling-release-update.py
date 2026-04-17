@@ -6,7 +6,7 @@ import subprocess
 
 import git
 
-from ciq_helpers import get_backport_commit_data
+from kt.ktlib.ciq_helpers import get_backport_commit_data
 
 FIPS_PROTECTED_DIRECTORIES = [
     b"arch/x86/crypto/",
