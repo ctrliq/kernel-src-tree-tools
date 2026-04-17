@@ -12,6 +12,8 @@ dependencies = [
 	"python3-wget",
 	"oyaml",
 	"pexpect",
+	"jira",
+	"requests",
 ]
 
 [project.optional-dependencies]
