@@ -499,25 +499,42 @@ def run_cve_search(vulns_repo, kernel_repo, query) -> tuple[bool, Optional[str]]
     return result.returncode == 0, result.stdout.strip()
 
 
+def CIQ_check_if_published_cve(vulns_repo, cve_id):
+    if not cve_id:
+        return False
+
+    cve_id_year = cve_id.split("-")[1]
+    published_path = f"{vulns_repo}/cve/published/{cve_id_year}/{cve_id}.sha1"
+    if not os.path.isfile(published_path):
+        print(f"[NOTE]: {cve_id} is not published, it has been rejected")
+        return False
+
+    return True
+
+
 def CIQ_find_matching_cve(vulns_repo, kernel_repo, hash_) -> str | None:
     """
-    Returns the CVE (i.e CVE-2023-526) if there is a corresponding CVE to that commit hash.
+    Returns the CVE (i.e CVE-2023-526) if there is a corresponding CVE to that commit hash
+    and the CVE is published, not rejected.
     Otherwise it returns None
     """
 
-    cve = None
+    cve_id = None
     try:
         success, cve_output = run_cve_search(vulns_repo, kernel_repo, hash_)
         if success:
             # Parse the CVE from the result
             match = re.search(r"(CVE-\d{4}-\d+)\s+is assigned to git id", cve_output)
             if match:
-                cve = match.group(1)
+                cve_id = match.group(1)
     except (RuntimeError, subprocess.SubprocessError) as e:
         # Log a warning instead of silently ignoring errors when checking bugfix CVEs
         print(f"Warning: Failed to check CVE for bugfix commit {hash_}: {e}", file=sys.stderr)
 
-    return cve
+    if CIQ_check_if_published_cve(vulns_repo=vulns_repo, cve_id=cve_id):
+        return cve_id
+
+    return None
 
 
 def CIQ_setup_vulns_repo(vulns_repo):
