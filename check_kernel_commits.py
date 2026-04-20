@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import os
 import re
 import subprocess
 import sys
@@ -13,6 +12,7 @@ from kt.ktlib.ciq_helpers import (
     CIQ_get_commit_body,
     CIQ_hash_exists_in_ref,
     CIQ_run_git,
+    CIQ_setup_vulns_repo,
 )
 
 
@@ -94,27 +94,11 @@ def main():
     vulns_repo = None
     if args.check_cves:
         vulns_repo = args.vulns_dir
-        vulns_repo_url = "https://git.kernel.org/pub/scm/linux/security/vulns.git"
-
-        if os.path.exists(vulns_repo):
-            # Repository exists, update it with git pull
-            try:
-                CIQ_run_git(vulns_repo, ["pull"])
-            except RuntimeError as e:
-                print(f"WARNING: Failed to update vulns repo: {e}")
-                print("Continuing with existing repository...")
-        else:
-            # Repository doesn't exist, clone it
-            try:
-                result = subprocess.run(
-                    ["git", "clone", vulns_repo_url, vulns_repo], text=True, capture_output=True, check=False
-                )
-                if result.returncode != 0:
-                    print(f"ERROR: Failed to clone vulns repo: {result.stderr}")
-                    sys.exit(1)
-            except Exception as e:
-                print(f"ERROR: Failed to clone vulns repo: {e}")
-                sys.exit(1)
+        try:
+            CIQ_setup_vulns_repo(vulns_repo=vulns_repo)
+        except RuntimeError as e:
+            print(e)
+            sys.exit(1)
 
     # Validate that all required refs exist before continuing
     missing_refs = []

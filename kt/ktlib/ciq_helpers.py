@@ -518,3 +518,32 @@ def CIQ_find_matching_cve(vulns_repo, kernel_repo, hash_) -> str | None:
         print(f"Warning: Failed to check CVE for bugfix commit {hash_}: {e}", file=sys.stderr)
 
     return cve
+
+
+def CIQ_setup_vulns_repo(vulns_repo):
+    """
+    Setups the vuln repo, either by doing a pull update or cloning it from scratch
+    if the repo does not exist.
+    Raises RuntimeError exception for failures during a clone from scratch.
+    If git pull fails, it is not considered an errros because we can still
+    use the current version of the repo, even if it's older.
+    """
+
+    vulns_repo_url = "https://git.kernel.org/pub/scm/linux/security/vulns.git"
+    if os.path.exists(vulns_repo):
+        # Repository exists, update it with git pull
+        try:
+            CIQ_run_git(vulns_repo, ["pull"])
+        except RuntimeError as e:
+            print(f"WARNING: Failed to update vulns repo: {e}")
+            print("Continuing with existing repository...")
+    else:
+        # Repository doesn't exist, clone it
+        try:
+            result = subprocess.run(
+                ["git", "clone", vulns_repo_url, vulns_repo], text=True, capture_output=True, check=False
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"ERROR: Failed to clone vulns repo: {result.stderr}")
+        except Exception as e:
+            raise RuntimeError(f"ERROR: Failed to clone vulns repo: {e}")
