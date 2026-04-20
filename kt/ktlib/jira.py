@@ -165,8 +165,13 @@ class JiraInstance:
                 f"Failed to assign issue {issue_key} to account {account_id}: {response.status_code} {response.text}"
             )
 
-    def assign_ticket(self, issue_key: str, assignee_email: str):
+    def assign_ticket(self, issue_key: str, assignee_email: str = None):
         """Try JIRA lib first, fall back to direct REST API."""
+
+        if assignee_email is None:
+            # If there is no assignee given as param, use the default one
+            assignee_email = self._api_user
+
         try:
             assignee_user_id = self.get_user_id(email=assignee_email)
         except JiraException:
