@@ -7,6 +7,7 @@ import click
 from kt.commands.checkout.command import checkout
 from kt.commands.content_release.command import content_release
 from kt.commands.git_push.command import git_push
+from kt.commands.kernel_info.command import kernel_info
 from kt.commands.list_kernels.command import list_kernels
 from kt.commands.setup.command import setup
 from kt.commands.vm.command import vm
@@ -32,6 +33,7 @@ def main():
     cli.add_command(git_push)
     cli.add_command(vm)
     cli.add_command(content_release)
+    cli.add_command(kernel_info)
     cli()
 
 
