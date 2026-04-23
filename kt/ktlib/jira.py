@@ -183,6 +183,12 @@ class JiraInstance:
             print(f"assign_ticket failed ({e}), trying fallback...")
             self._assign_issue_fallback(issue_key=issue_key, account_id=assignee_user_id)
 
+    def unassign_ticket(self, issue_key: str):
+        try:
+            self._jira.assign_issue(issue=issue_key, assignee=None)
+        except JIRAError as e:
+            raise JiraException(e)
+
     def get_matching_tickets(self, summary: str) -> list[Issue]:
         escaped_summary = summary.replace('"', '\\"')
         matching_issues = []
