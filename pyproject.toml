@@ -1,4 +1,3 @@
-# This is not an installable project at the moment.
 # This is used to control dependencies and liter configuration
 [project]
 name = "kernel-src-tree-tools"
