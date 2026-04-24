@@ -103,11 +103,9 @@ environment.
 
 ## Commands
 
-Make sure kt is reachable from anywhere by adding it's location to PATH.
-Example
-```
-export PATH=$HOME/ciq/kernel-src-tree-tools/bin:$PATH
-```
+Kt is now installed when kernel-src-tree-tools is installed, no need
+to do anything extra.
+
 If you are unsure how to use kt, just run it with --help.
 Example:
 ```

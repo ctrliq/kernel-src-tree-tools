@@ -40,3 +40,6 @@ include = ["kt*"]
 
 [tool.setuptools.package-data]
 "kt" = ["data/*.yaml"]
+
+[project.scripts]
+kt = "kt.kt:main"
