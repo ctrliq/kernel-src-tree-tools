@@ -1,7 +1,6 @@
 import logging
 import os
 import re
-import time
 
 from git import GitCommandError, Repo
 
@@ -10,7 +9,6 @@ from kt.ktlib.kernel_workspace import KernelWorkspace
 from kt.ktlib.local import LocalCommand
 from kt.ktlib.mock import Mock
 from kt.ktlib.ssh import SshCommand
-from kt.ktlib.util import Constants
 from kt.ktlib.vm import Vm
 
 # Source download configuration for kernels that don't work with getsrc.sh
@@ -309,7 +307,7 @@ class ContentRelease:
 
         # Wait for dependencies to be installed if VM was just created
         logging.info("Waiting for VM dependencies to be installed...")
-        time.sleep(Constants.VM_DEPS_INSTALL_WAIT_SECONDS)
+        SshCommand.run(domain=vm_instance.domain, command=["sudo cloud-init status --wait || true"])
 
         # Install the built RPMs
         build_files_dir = kernel_workspace_obj.folder / "build_files"
