@@ -13,6 +13,5 @@ class Constants:
 
     CLOUD_INIT = "cloud_init.yaml"
 
-    VM_DEPS_INSTALL_WAIT_SECONDS = 300
     VM_STARTUP_WAIT_SECONDS = 60
     VM_REBOOT_WAIT_SECONDS = 120

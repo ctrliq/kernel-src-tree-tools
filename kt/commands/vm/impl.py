@@ -1,8 +1,7 @@
 import logging
-import time
 
 from kt.ktlib.config import Config
-from kt.ktlib.util import Constants
+from kt.ktlib.ssh import SshCommand
 from kt.ktlib.virt import VmCommand
 from kt.ktlib.vm import Vm
 
@@ -25,9 +24,8 @@ def main(name: str, console: bool, destroy: bool, override: bool, list_all: bool
     config = Config.load()
 
     if test:
-        # Wait for the dependencies to be installed
-        logging.info("Waiting for the deps to be installed")
-        time.sleep(Constants.VM_DEPS_INSTALL_WAIT_SECONDS)
+        logging.info("Waiting for cloud-init to finish...")
+        SshCommand.run(domain=vm_instance.domain, command=["sudo cloud-init status --wait || true"])
         vm_instance.test(config=config)
 
     if console:
