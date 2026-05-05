@@ -27,6 +27,7 @@
 #   -r, --no-pr          Skip creating PR
 #   --dry-run            Show what would be done without executing
 #   --resume             Resume from saved state
+#   -i, --interactive    Interactive mode - pause on merge conflicts for user resolution
 #   --fips-override      Override FIPS check abort in rolling-release-update.py
 #   --build-only         Only run VM build phase (skip rebase, test, push, PR)
 #   --test-only          Only run kselftest phase (skip rebase, build, push, PR)
@@ -75,6 +76,7 @@ BUILD_ONLY=false
 TEST_ONLY=false
 PR_ONLY=false
 FIPS_OVERRIDE=false
+INTERACTIVE=false
 STARTTIME=$(date +%s)
 
 # Log file variables (initialized later after ROLLING_PRODUCT is determined)
@@ -318,6 +320,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -r|--no-pr)
             SKIP_PR=true
+            shift
+            ;;
+        -i|--interactive)
+            INTERACTIVE=true
             shift
             ;;
         --fips-override)
@@ -608,6 +614,9 @@ if [ "$DRY_RUN" = false ]; then
     if [ "$FIPS_OVERRIDE" = true ]; then
         RR_ARGS+=(--fips-override)
     fi
+    if [ "$INTERACTIVE" = true ]; then
+        RR_ARGS+=(--interactive)
+    fi
 
     python3 rolling-release-update.py "${RR_ARGS[@]}" \
         2>&1 | tee "$RR_LOGFILE" | tee -a "$ORCH_LOGFILE"
@@ -630,7 +639,11 @@ else
     if [ "$FIPS_OVERRIDE" = true ]; then
         FIPS_FLAG=" --fips-override"
     fi
-    log_info "[DRY RUN] Would run: python3 rolling-release-update.py --repo $ROLLING_REPO --new-base-branch $BASE_BRANCH --old-rolling-branch $OLD_BRANCH${FIPS_FLAG}"
+    INTERACTIVE_FLAG=""
+    if [ "$INTERACTIVE" = true ]; then
+        INTERACTIVE_FLAG=" --interactive"
+    fi
+    log_info "[DRY RUN] Would run: python3 rolling-release-update.py --repo $ROLLING_REPO --new-base-branch $BASE_BRANCH --old-rolling-branch $OLD_BRANCH${FIPS_FLAG}${INTERACTIVE_FLAG}"
 fi
 else
     log_info "Skipping rebase phase (resuming from $CURRENT_STAGE or phase-only mode)"
