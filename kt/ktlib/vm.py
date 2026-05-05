@@ -96,7 +96,7 @@ class Vm:
         return cls.load(config=config, kernel_workspace=kernel_workspace)
 
     @classmethod
-    def setup_and_spinup(cls, kernel_workspace_name: str, override: bool = False, vcpus: int = 12):
+    def setup_and_spinup(cls, kernel_workspace_name: str, override: bool = False, vcpus: int = 12, memory: int = 32768):
         """
         Setup and spin up a VM from a kernel workspace name.
 
@@ -104,6 +104,7 @@ class Vm:
             kernel_workspace_name: The name of the kernel workspace
             override: If True, destroy and recreate the VM
             vcpus: Number of virtual CPUs
+            memory: Memory in MiB
 
         Returns:
             VmInstance: The running VM instance
@@ -115,7 +116,7 @@ class Vm:
             vm.destroy()
 
         vm.setup(config=config)
-        vm_instance = vm.spin_up(config=config, vcpus=vcpus)
+        vm_instance = vm.spin_up(config=config, vcpus=vcpus, memory=memory)
 
         return vm_instance
 
@@ -169,7 +170,7 @@ class Vm:
             f.write("#cloud-config\n")
             yaml.dump(data, f)
 
-    def _create_image(self, config: Config, vcpus: int = 12):
+    def _create_image(self, config: Config, vcpus: int = 12, memory: int = 32768):
         # Make sure the dir exists
         self.qcow2_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -180,10 +181,10 @@ class Vm:
         # Resize the disk to 30GB
         self._resize_disk()
 
-        self._virt_install(config=config, vcpus=vcpus)
+        self._virt_install(config=config, vcpus=vcpus, memory=memory)
         time.sleep(Constants.VM_STARTUP_WAIT_SECONDS)
 
-    def _virt_install(self, config: Config, vcpus: int = 12):
+    def _virt_install(self, config: Config, vcpus: int = 12, memory: int = 32768):
         return VmCommand.install(
             name=self.name,
             qcow2_path=self.qcow2_path,
@@ -191,6 +192,7 @@ class Vm:
             cloud_init_path=self.cloud_init_path,
             common_dir=config.base_path,
             vcpus=vcpus,
+            memory=memory,
         )
 
     def _resize_disk(self):
@@ -204,11 +206,11 @@ class Vm:
     def setup(self, config: Config):
         self._download_source_image()
 
-    def spin_up(self, config: Config, vcpus: int = 12) -> VmInstance:
+    def spin_up(self, config: Config, vcpus: int = 12, memory: int = 32768) -> VmInstance:
         if not VirtHelper.exists(vm_name=self.name):
             logging.info(f"VM {self.name} does not exist, creating from scratch...")
 
-            self._create_image(config=config, vcpus=vcpus)
+            self._create_image(config=config, vcpus=vcpus, memory=memory)
             return VmInstance(name=self.name, kernel_workspace=self.kernel_workspace)
 
         logging.info(f"Vm {self.name} already exists")

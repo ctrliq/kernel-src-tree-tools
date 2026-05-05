@@ -42,6 +42,7 @@ class VmCommand(CommandRunner):
         cloud_init_path: Path,
         common_dir: Path,
         vcpus: int = 12,
+        memory: int = 32768,
     ):
         command = [
             "--name",
@@ -54,7 +55,7 @@ class VmCommand(CommandRunner):
             "--vcpus",
             str(vcpus),
             "--memory",
-            str(32768),
+            str(memory),
             "--vnc",
             "--cloud-init",
             f"user-data={cloud_init_path}",
