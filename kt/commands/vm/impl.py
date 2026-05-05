@@ -6,7 +6,7 @@ from kt.ktlib.virt import VmCommand
 from kt.ktlib.vm import Vm
 
 
-def main(name: str, console: bool, destroy: bool, override: bool, list_all: bool, test: bool = False):
+def main(name: str, console: bool, destroy: bool, override: bool, list_all: bool, test: bool = False, vcpus: int = 12):
     if list_all:
         VmCommand.list_all()
         return
@@ -20,7 +20,7 @@ def main(name: str, console: bool, destroy: bool, override: bool, list_all: bool
         vm.destroy()
         return
 
-    vm_instance = Vm.setup_and_spinup(kernel_workspace_name=name, override=override)
+    vm_instance = Vm.setup_and_spinup(kernel_workspace_name=name, override=override, vcpus=vcpus)
     config = Config.load()
 
     if test:

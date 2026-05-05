@@ -41,6 +41,7 @@ class VmCommand(CommandRunner):
         vm_major_version: str,
         cloud_init_path: Path,
         common_dir: Path,
+        vcpus: int = 12,
     ):
         command = [
             "--name",
@@ -51,7 +52,7 @@ class VmCommand(CommandRunner):
             "--virt-type",
             "kvm",
             "--vcpus",
-            "12,vcpu.cpuset=0-11,vcpu.placement=static",
+            str(vcpus),
             "--memory",
             str(32768),
             "--vnc",

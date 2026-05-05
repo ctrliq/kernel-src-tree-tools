@@ -57,9 +57,18 @@ $ kt vm lts9_4 -c --override
     help="Lists existings vms",
 )
 @click.option("--test", is_flag=True, help="Build the kernel and run kselftests")
+@click.option("--vcpus", type=int, default=12, help="Number of virtual CPUs (default: 12)")
 @click.argument("kernel_workspace", required=False, shell_complete=ShellCompletion.show_kernel_workspaces)
-def vm(kernel_workspace, console, destroy, override, list_all, test):
+def vm(kernel_workspace, console, destroy, override, list_all, test, vcpus):
     if not list_all and not kernel_workspace:
         raise click.UsageError("kernel_workspace is required unless --list-all is specified")
 
-    main(name=kernel_workspace, console=console, destroy=destroy, override=override, list_all=list_all, test=test)
+    main(
+        name=kernel_workspace,
+        console=console,
+        destroy=destroy,
+        override=override,
+        list_all=list_all,
+        test=test,
+        vcpus=vcpus,
+    )
