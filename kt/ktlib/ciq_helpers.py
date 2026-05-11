@@ -512,7 +512,7 @@ def CIQ_check_if_published_cve(vulns_repo, cve_id):
     return True
 
 
-def CIQ_find_matching_cve(vulns_repo, kernel_repo, hash_) -> str | None:
+def CIQ_find_matching_cve(vulns_repo, kernel_repo, hash_) -> Optional[str]:
     """
     Returns the CVE (i.e CVE-2023-526) if there is a corresponding CVE to that commit hash
     and the CVE is published, not rejected.
