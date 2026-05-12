@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 
-import ciq_tag
-import click
-import os
-from enum import Enum
-import sys
 import logging
+import os
+import sys
+from enum import Enum
+
+import click
+
+import kt.ktlib.ciq_tag as ciq_tag
 
 DEFAULT_LOGLEVEL = "INFO"
 
