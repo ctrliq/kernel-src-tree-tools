@@ -1,5 +1,8 @@
+import logging
+
 from kt.ktlib.config import Config
 from kt.ktlib.kernels import KernelsInfo
+from kt.ktlib.repo import RepoInfoException
 
 
 def main():
@@ -10,4 +13,7 @@ def main():
 
     repos = KernelsInfo.from_yaml(config=config).repos
     for repo in repos.values():
-        repo.setup_repo()
+        try:
+            repo.setup_repo()
+        except RepoInfoException as e:
+            logging.error(e, exc_info=True)
