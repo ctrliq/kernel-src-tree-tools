@@ -6,6 +6,10 @@ from git import Repo
 from pathlib3x import Path
 
 
+class RepoInfoException(Exception):
+    pass
+
+
 @dataclass
 class RepoInfo:
     """
@@ -36,9 +40,17 @@ class RepoInfo:
         If destination already exists and override == True,
         nothing is done
         """
+
         if not self.folder.exists():
-            self._clone_repo()
+            try:
+                self._clone_repo()
+            except git.GitCommandError as e:
+                raise RepoInfoException(f"{self.folder.name} could not be cloned") from e
+
             return
 
         logging.info(f"{self.folder} already exists, updating it")
-        self._update()
+        try:
+            self._update()
+        except git.GitCommandError as e:
+            raise RepoInfoException(f"{self.folder.name} could not be updated") from e
