@@ -37,8 +37,7 @@ class RepoInfo:
     def setup_repo(self):
         """
         Set up a git repository at the destination.
-        If destination already exists and override == True,
-        nothing is done
+        If destination already exists, update it.
         """
 
         if not self.folder.exists():
