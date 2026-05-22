@@ -197,7 +197,7 @@ before creating it from scratch again.
 
 #### Example:
 ```
-$ kt checkout lts9_4
+$ kt checkout lts-9.4
 ```
 
 For this configuration
@@ -212,7 +212,7 @@ For this configuration
 ```
 
 This is the working directory for this kernel:
-`~/ciq/kernels/lts9_4`.
+`~/ciq/kernels/lts-9.4`.
 
 2 git worktrees are created:
 
@@ -247,7 +247,7 @@ $ sudo usermod -a -G libvirt $(whoami)
 
 #### Example:
 ```
-$ kt vm lts9_4
+$ kt vm lts-9.4
 ```
 
 For this configuration

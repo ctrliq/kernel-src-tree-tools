@@ -26,17 +26,17 @@ own <config.images_dir>/<kernel> folder.
 Examples:
 
 \b
-$ kt vm lts9_4
+$ kt vm lts-9.4
 \b
-$ kt vm lts9_4 --console
+$ kt vm lts-9.4 --console
 \b
-$ kt vm lts9_4 -c
+$ kt vm lts-9.4 -c
 \b
-$ kt vm lts9_4 --destroy
+$ kt vm lts-9.4 --destroy
 \b
-$ kt vm lts9_4 -c --override
+$ kt vm lts-9.4 -c --override
 \b
-$ kt vm lts9_4 -c --override-base
+$ kt vm lts-9.4 -c --override-base
 """
 
 
