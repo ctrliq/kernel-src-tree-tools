@@ -499,9 +499,9 @@ if [ -z "$BASE_BRANCH" ]; then
     log_info "Available base branches: $(echo "$AVAILABLE_BASES" | tr '\n' ' ')"
 fi
 
-# Update and checkout base branch
+# Update and checkout base branch (only on fresh run — resume preserves PR branch checkout)
 log_info "Checking out base branch: $BASE_BRANCH"
-if [ "$DRY_RUN" = false ]; then
+if [ "$DRY_RUN" = false ] && [[ "$CURRENT_STAGE" =~ ^(init|detected)$ ]]; then
     pushd "$ROLLING_REPO" > /dev/null
     git checkout "$BASE_BRANCH"
     git pull origin "$BASE_BRANCH"
@@ -599,8 +599,8 @@ ORCH_LOGFILE="${LOG_DIR}/orchestrator.${ROLLING_PRODUCT}.${LOG_TIMESTAMP}.log"
 # For backwards compatibility, LOGFILE points to orchestrator log
 LOGFILE="$ORCH_LOGFILE"
 
-# Save state after detection
-save_state "detected"
+# Save state after detection (only on fresh run — preserve loaded stage when resuming)
+[[ "$CURRENT_STAGE" == "init" ]] && save_state "detected"
 
 # Run rolling-release-update.py (skip if resuming from later stage or in phase-only modes)
 if [[ "$CURRENT_STAGE" =~ ^(detected|init)$ ]] && [ "$BUILD_ONLY" = false ] && [ "$TEST_ONLY" = false ] && [ "$PR_ONLY" = false ]; then
@@ -649,18 +649,19 @@ else
     log_info "Skipping rebase phase (resuming from $CURRENT_STAGE or phase-only mode)"
 fi
 
-# Extract the new branch name from the log or detect it
-NEW_ROLLING_BRANCH=""
-NEW_PR_BRANCH=""
-
+# Extract the new branch name — preserve loaded state when resuming
 if [ "$DRY_RUN" = false ]; then
     pushd "$ROLLING_REPO" > /dev/null
 
-    # Get the current branch (should be the {user}_{product}/... branch)
-    NEW_PR_BRANCH=$(git branch --show-current)
-
-    # Derive the rolling branch name (remove username prefix)
-    NEW_ROLLING_BRANCH="${NEW_PR_BRANCH#*_}"
+    if [ -n "${NEW_PR_BRANCH:-}" ]; then
+        # Resuming with a saved PR branch — switch to it so build/test use the right tree
+        git checkout "$NEW_PR_BRANCH"
+        NEW_ROLLING_BRANCH="${NEW_ROLLING_BRANCH:-${NEW_PR_BRANCH#*_}}"
+    else
+        # Fresh run — read from current branch (set by rolling-release-update.py)
+        NEW_PR_BRANCH=$(git branch --show-current)
+        NEW_ROLLING_BRANCH="${NEW_PR_BRANCH#*_}"
+    fi
 
     popd > /dev/null
 
