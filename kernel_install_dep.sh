@@ -210,14 +210,14 @@ install_kselftest_deps_10() {
     wheel
 }
 
-case "$ROCKY_SUPPORT_PRODUCT" in
-    Rocky-Linux-10)
+case "${VERSION_ID%%.*}" in
+    10)
         install_kselftest_deps_10
         ;;
-    Rocky-Linux-9)
+    9)
         install_kselftest_deps_9
         ;;
-    Rocky-Linux-8)
+    8)
         install_kselftest_deps_8
         ;;
 esac
