@@ -5,10 +5,10 @@ import os
 import time
 from dataclasses import dataclass
 
-import oyaml as yaml
 import wget
 from git import Repo
 from pathlib3x import Path
+from ruamel.yaml import YAML
 
 from kt.ktlib.config import Config
 from kt.ktlib.kernel_workspace import KernelWorkspace
@@ -157,9 +157,15 @@ class Vm:
         wget.download(self._get_vm_url(), out=str(self.qcow2_source_path))
 
     def _setup_cloud_init(self, config: Config):
+        yaml = YAML()
+        yaml.preserve_quotes = True
+        yaml.width = 4096
+        yaml.default_flow_style = False
+        yaml.best_sequence_indent = 2
+
         data = None
         with open(CLOUD_INIT_BASE_PATH) as f:
-            data = yaml.safe_load(f)
+            data = yaml.load(f)
 
         # replace placeholders with user data
         data["users"][0]["name"] = config.user
@@ -189,7 +195,6 @@ class Vm:
         data["runcmd"].append([str(config.base_path / Path("kernel-src-tree-tools") / Path("kernel_install_dep.sh"))])
         # Write this to image cloud_init
         with open(self.cloud_init_path, "w") as f:
-            f.write("#cloud-config\n")
             yaml.dump(data, f)
 
     def _create_image(self, config: Config, vcpus: int = 12, memory: int = 32768):
