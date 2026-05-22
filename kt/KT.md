@@ -261,10 +261,10 @@ For this configuration
 }
 ```
 
-Here is the qcow2 vm image used as source for other vms as well:
+Here is the qcow2 vm image used as source for other vms for 9.4 kernels as well:
 
 ```
-~/ciq/default_test_images/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2
+~/ciq/default_test_images/Rocky-9.4-GenericCloud.latest.x86_64.qcow2
 ```
 
 And here are the actual vm configuration and image files:

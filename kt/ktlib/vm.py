@@ -31,12 +31,14 @@ class Vm:
 
     qcow2_source_path: qcow2 path to the vm image used as source
     vm_major_version: major vm version (9 for Rocky 9)
+    vm_major_version: major.minor vm version (9.2 for Rocky 9.2)
     qcow2_path: the qcow2 path of the vm image copied from qcow2_source_path
     cloud_init_path: cloud_init.yaml config, adapted from data/cloud_init.yaml
     """
 
     qcow2_source_path: Path
     vm_major_version: str
+    vm_major_minor_version: str
     qcow2_path: Path
     cloud_init_path: Path
     name: str
@@ -47,9 +49,12 @@ class Vm:
         kernel_workspace_str = kernel_workspace.folder.name
         kernel_name = cls._extract_kernel_name(kernel_workspace_str)
         vm_major_version = cls._extract_major(kernel_name)
+        vm_major_minor_version = cls._extract_major_minor(kernel_name)
 
         # Image source paths construction
-        qcow2_source_path = config.images_source_dir / Path(cls._qcow2_name(vm_major_version=vm_major_version))
+        qcow2_source_path = config.images_source_dir / Path(
+            cls._qcow2_name(vm_major_minor_version=vm_major_minor_version)
+        )
 
         # Actual current image paths construction
         work_dir = config.images_dir / Path(kernel_workspace_str)
@@ -59,6 +64,7 @@ class Vm:
         return cls(
             qcow2_source_path=qcow2_source_path,
             vm_major_version=vm_major_version,
+            vm_major_minor_version=vm_major_minor_version,
             qcow2_path=qcow2_path,
             cloud_init_path=cloud_init_path,
             name=kernel_workspace_str,
@@ -76,8 +82,13 @@ class Vm:
         return full_version.split("-")[-1].split(".")[0]
 
     @classmethod
-    def _qcow2_name(cls, vm_major_version: str):
-        return f"{Constants.DEFAULT_VM_BASE}-{vm_major_version}-{Constants.QCOW2_TRAIL}"
+    def _extract_major_minor(cls, full_version):
+        # lts-9.4 -> return 9.4
+        return full_version.split("-")[-1]
+
+    @classmethod
+    def _qcow2_name(cls, vm_major_minor_version: str):
+        return f"{Constants.DEFAULT_VM_BASE}-{vm_major_minor_version}-{Constants.QCOW2_TRAIL}"
 
     @classmethod
     def load_from_workspace(cls, kernel_workspace_name: str):
@@ -121,7 +132,7 @@ class Vm:
         return vm_instance
 
     def _get_vm_url(self):
-        return f"{Constants.BASE_URL}/{self.vm_major_version}/images/x86_64/{self.qcow2_source_path.name}"
+        return f"{Constants.BASE_URL}/{self.vm_major_minor_version}/images/x86_64/{Constants.DEFAULT_VM_BASE}-{self.vm_major_version}-{Constants.QCOW2_TRAIL}"
 
     def _download_source_image(self):
         if self.qcow2_source_path.exists():
@@ -131,8 +142,11 @@ class Vm:
         # Make sure the folder exists
         self.qcow2_source_path.parent.mkdir(parents=True, exist_ok=True)
 
-        logging.info("Downloading image")
-        wget.download(self._get_vm_url(), out=str(self.qcow2_source_path.parent))
+        # Delete existing image if it exists
+        self.qcow2_source_path.unlink(missing_ok=True)
+
+        logging.info(f"Downloading image from {self._get_vm_url()}")
+        wget.download(self._get_vm_url(), out=str(self.qcow2_source_path))
 
     def _setup_cloud_init(self, config: Config):
         data = None

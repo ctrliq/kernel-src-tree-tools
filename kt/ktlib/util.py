@@ -7,8 +7,8 @@ class Constants:
     COMMON_REPOS = "common_repos"
     KERNELS = "kernels"
 
-    BASE_URL = "https://download.rockylinux.org/pub/rocky"
-    QCOW2_TRAIL = "GenericCloud-Base.latest.x86_64.qcow2"
+    BASE_URL = "https://dl.rockylinux.org/vault/rocky"
+    QCOW2_TRAIL = "GenericCloud.latest.x86_64.qcow2"
     DEFAULT_VM_BASE = "Rocky"
 
     CLOUD_INIT = "cloud_init.yaml"
