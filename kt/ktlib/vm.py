@@ -107,13 +107,21 @@ class Vm:
         return cls.load(config=config, kernel_workspace=kernel_workspace)
 
     @classmethod
-    def setup_and_spinup(cls, kernel_workspace_name: str, override: bool = False, vcpus: int = 12, memory: int = 32768):
+    def setup_and_spinup(
+        cls,
+        kernel_workspace_name: str,
+        override: bool = False,
+        override_base: bool = False,
+        vcpus: int = 12,
+        memory: int = 32768,
+    ):
         """
         Setup and spin up a VM from a kernel workspace name.
 
         Args:
             kernel_workspace_name: The name of the kernel workspace
             override: If True, destroy and recreate the VM
+            override_base: If True, destroy and recreate the VM but override the base image as well
             vcpus: Number of virtual CPUs
             memory: Memory in MiB
 
@@ -123,10 +131,10 @@ class Vm:
         vm = cls.load_from_workspace(kernel_workspace_name)
         config = Config.load()
 
-        if override:
+        if override or override_base:
             vm.destroy()
 
-        vm.setup(config=config)
+        vm.setup(override_base=override_base)
         vm_instance = vm.spin_up(config=config, vcpus=vcpus, memory=memory)
 
         return vm_instance
@@ -134,8 +142,8 @@ class Vm:
     def _get_vm_url(self):
         return f"{Constants.BASE_URL}/{self.vm_major_minor_version}/images/x86_64/{Constants.DEFAULT_VM_BASE}-{self.vm_major_version}-{Constants.QCOW2_TRAIL}"
 
-    def _download_source_image(self):
-        if self.qcow2_source_path.exists():
+    def _download_source_image(self, override_base: bool = False):
+        if self.qcow2_source_path.exists() and not override_base:
             logging.info(f"Image {self.qcow2_source_path} already exists, nothing to do")
             return
 
@@ -217,8 +225,8 @@ class Vm:
         except RuntimeError as e:
             raise RuntimeError(f"Failed to resize disk image: {e}")
 
-    def setup(self, config: Config):
-        self._download_source_image()
+    def setup(self, override_base: bool = False):
+        self._download_source_image(override_base=override_base)
 
     def spin_up(self, config: Config, vcpus: int = 12, memory: int = 32768) -> VmInstance:
         if not VirtHelper.exists(vm_name=self.name):

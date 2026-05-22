@@ -11,6 +11,7 @@ def main(
     console: bool,
     destroy: bool,
     override: bool,
+    override_base: bool,
     list_all: bool,
     test: bool = False,
     vcpus: int = 12,
@@ -29,7 +30,9 @@ def main(
         vm.destroy()
         return
 
-    vm_instance = Vm.setup_and_spinup(kernel_workspace_name=name, override=override, vcpus=vcpus, memory=memory)
+    vm_instance = Vm.setup_and_spinup(
+        kernel_workspace_name=name, override=override, override_base=override_base, vcpus=vcpus, memory=memory
+    )
     config = Config.load()
 
     if test:
