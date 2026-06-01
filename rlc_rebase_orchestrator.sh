@@ -28,6 +28,7 @@
 #   --dry-run            Show what would be done without executing
 #   --resume             Resume from saved state
 #   -i, --interactive    Interactive mode - pause on merge conflicts for user resolution
+#   --new-minor-version  New minor version release (e.g., el9_7 -> el9_8)
 #   --fips-override      Override FIPS check abort in rolling-release-update.py
 #   --build-only         Only run VM build phase (skip rebase, test, push, PR)
 #   --test-only          Only run kselftest phase (skip rebase, build, push, PR)
@@ -46,6 +47,9 @@
 #
 #   # Full manual specification
 #   ./rlc_rebase_orchestrator.sh -P rlc-10 -b rocky10_1 -o rlc-10/6.12.0-124.27.1.el10_1
+#
+#   # New minor version release (e.g., el9_7 -> el9_8)
+#   ./rlc_rebase_orchestrator.sh -P rlc-9 -b rocky9_8 -o rlc-9/5.14.0-611.34.1.el9_7 --new-minor-version
 
 set -e  # Exit on any error
 set -o pipefail  # Catch errors in pipes
@@ -76,6 +80,7 @@ BUILD_ONLY=false
 TEST_ONLY=false
 PR_ONLY=false
 FIPS_OVERRIDE=false
+NEW_MINOR_VERSION=false
 INTERACTIVE=false
 STARTTIME=$(date +%s)
 
@@ -153,6 +158,7 @@ NEW_ROLLING_BRANCH=${NEW_ROLLING_BRANCH:-}
 NEW_PR_BRANCH=${NEW_PR_BRANCH:-}
 JIRA_TICKET=${JIRA_TICKET:-}
 KVM_NAME=$KVM_NAME
+NEW_MINOR_VERSION=$NEW_MINOR_VERSION
 RR_LOGFILE=${RR_LOGFILE:-}
 ORCH_LOGFILE=${ORCH_LOGFILE:-}
 TIMESTAMP=$(date +%s)
@@ -324,6 +330,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -i|--interactive)
             INTERACTIVE=true
+            shift
+            ;;
+        --new-minor-version)
+            NEW_MINOR_VERSION=true
             shift
             ;;
         --fips-override)
@@ -545,13 +555,23 @@ if [ -z "$OLD_BRANCH" ]; then
     # Extract minor version from base branch (e.g., rocky10_1 -> 10_1)
     MINOR_VERSION=$(echo "$BASE_BRANCH" | grep -oE "[0-9]+_[0-9]+")
 
-    # Find the latest rolling branch that matches the minor version
-    # Branches look like: rlc-10/6.12.0-124.27.1.el10_1 or sig-cloud-9/5.14.0-553.33.1.el9_5
-    OLD_BRANCH=$(git branch -a | grep -E "${ROLLING_PRODUCT}/.*\.el${MINOR_VERSION}$" | \
-        sed "s/.*${ROLLING_PRODUCT}/${ROLLING_PRODUCT}/" | \
-        sort -V | \
-        tail -1 | \
-        tr -d ' *')
+    if [ "$NEW_MINOR_VERSION" = true ]; then
+        # For minor version jumps (e.g., el9_7 -> el9_8), find the latest rolling
+        # branch for this product regardless of minor version
+        OLD_BRANCH=$(git branch -a | grep -E "^\s*${ROLLING_PRODUCT}/[0-9]" | \
+            sed "s/.*${ROLLING_PRODUCT}/${ROLLING_PRODUCT}/" | \
+            sort -V | \
+            tail -1 | \
+            tr -d ' *')
+    else
+        # Find the latest rolling branch that matches the minor version
+        # Branches look like: rlc-10/6.12.0-124.27.1.el10_1 or sig-cloud-9/5.14.0-553.33.1.el9_5
+        OLD_BRANCH=$(git branch -a | grep -E "${ROLLING_PRODUCT}/.*\.el${MINOR_VERSION}$" | \
+            sed "s/.*${ROLLING_PRODUCT}/${ROLLING_PRODUCT}/" | \
+            sort -V | \
+            tail -1 | \
+            tr -d ' *')
+    fi
 
     popd > /dev/null
 
@@ -581,6 +601,7 @@ echo "  JIRA Ticket:        ${JIRA_TICKET:-'(not specified)'}"
 echo "  Skip VM Build:      $SKIP_VM"
 echo "  Skip Push:          $SKIP_PUSH"
 echo "  Skip PR:            $SKIP_PR"
+echo "  New Minor Version:  $NEW_MINOR_VERSION"
 echo "  FIPS Override:      $FIPS_OVERRIDE"
 echo "  Dry Run:            $DRY_RUN"
 echo "======================================"
@@ -611,6 +632,9 @@ if [ "$DRY_RUN" = false ]; then
 
     # Capture clean RR output to RR_LOGFILE, and also to orchestrator log
     RR_ARGS=(--repo "$ROLLING_REPO" --new-base-branch "$BASE_BRANCH" --old-rolling-branch "$OLD_BRANCH")
+    if [ "$NEW_MINOR_VERSION" = true ]; then
+        RR_ARGS+=(--new-minor-version)
+    fi
     if [ "$FIPS_OVERRIDE" = true ]; then
         RR_ARGS+=(--fips-override)
     fi
@@ -635,6 +659,10 @@ if [ "$DRY_RUN" = false ]; then
     log_info "RR log file: $RR_LOGFILE"
     log_info "Orchestrator log: $ORCH_LOGFILE"
 else
+    NEW_MINOR_FLAG=""
+    if [ "$NEW_MINOR_VERSION" = true ]; then
+        NEW_MINOR_FLAG=" --new-minor-version"
+    fi
     FIPS_FLAG=""
     if [ "$FIPS_OVERRIDE" = true ]; then
         FIPS_FLAG=" --fips-override"
@@ -643,7 +671,7 @@ else
     if [ "$INTERACTIVE" = true ]; then
         INTERACTIVE_FLAG=" --interactive"
     fi
-    log_info "[DRY RUN] Would run: python3 rolling-release-update.py --repo $ROLLING_REPO --new-base-branch $BASE_BRANCH --old-rolling-branch $OLD_BRANCH${FIPS_FLAG}${INTERACTIVE_FLAG}"
+    log_info "[DRY RUN] Would run: python3 rolling-release-update.py --repo $ROLLING_REPO --new-base-branch $BASE_BRANCH --old-rolling-branch $OLD_BRANCH${NEW_MINOR_FLAG}${FIPS_FLAG}${INTERACTIVE_FLAG}"
 fi
 else
     log_info "Skipping rebase phase (resuming from $CURRENT_STAGE or phase-only mode)"
