@@ -480,6 +480,102 @@ def read_spec_el_version(spec_lines):
     return _read_spec_define(spec_lines, "el_version", r"\d+")
 
 
+FIPS_PROTECTED_DIRECTORIES = [
+    b"arch/x86/crypto/",
+    b"crypto/asymmetric_keys/",
+    b"crypto/",
+    b"drivers/crypto/",
+    b"drivers/char/random.c",
+    b"include/crypto",
+]
+
+
+def check_for_fips_protected_changes(repo_path, start_ref, end_ref):
+    """Check for changes to FIPS protected directories in a range of commits.
+
+    Iterates over commits in start_ref..end_ref and checks whether any
+    modified files fall under a FIPS protected directory.  Uses bytestrings
+    throughout to avoid encoding issues with international contributor names
+    in git output.
+
+    Parameters:
+        repo_path: Path to the git repository.
+        start_ref: The starting ref (exclusive) for the commit range.
+        end_ref: The ending ref (inclusive) for the commit range.
+
+    Returns:
+        dict mapping commit SHA (bytes) -> set of matched FIPS directory prefixes (bytes)
+        for each commit that touches FIPS protected paths.  Empty dict if none found.
+    """
+    print("[fips-check] Checking for FIPS protected changes")
+    print(f"[fips-check] Getting SHAS {start_ref}..{end_ref}")
+    results = subprocess.run(
+        ["git", "log", "--pretty=%H", f"{start_ref}..{end_ref}"],
+        stderr=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        cwd=repo_path,
+    )
+    if results.returncode != 0:
+        print(results.stderr)
+        raise RuntimeError(f"git log failed for range {start_ref}..{end_ref}")
+
+    num_commits = len(results.stdout.split(b"\n"))
+    print("[fips-check] Number of commits to check: ", num_commits)
+    shas_to_check = {}
+    commits_checked = 0
+
+    progress_interval = max(1, num_commits // 10)
+
+    print("[fips-check] Checking modifications of shas")
+    for sha in results.stdout.split(b"\n"):
+        commits_checked += 1
+        if commits_checked % progress_interval == 0:
+            print(f"[fips-check] Checked {commits_checked} of {num_commits} commits")
+        if sha == b"":
+            continue
+        res = subprocess.run(
+            ["git", "show", "--name-only", "--pretty=%H %s", f"{sha.decode()}"],
+            stderr=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            cwd=repo_path,
+        )
+        if res.returncode != 0:
+            print(res)
+            print(res.stderr)
+            raise RuntimeError(f"git show failed for {sha}")
+
+        sha_hash_and_subject = b""
+        touched_fips_files = set()
+
+        for line in res.stdout.split(b"\n"):
+            if sha_hash_and_subject == b"":
+                sha_hash_and_subject = line
+                continue
+            if line == b"":
+                continue
+
+            add_to_check = False
+
+            for dir in FIPS_PROTECTED_DIRECTORIES:
+                if line.startswith(dir):
+                    add_to_check = True
+                    if dir not in touched_fips_files:
+                        touched_fips_files.add(dir)
+
+            if add_to_check:
+                shas_to_check[sha_hash_and_subject.split(b" ")[0]] = touched_fips_files
+
+        if touched_fips_files:
+            print(f"[fips-check] Checked commit {sha} touched {len(touched_fips_files)} FIPS protected files")
+            for f in touched_fips_files:
+                print(f"  - {f}")
+        sha_hash_and_subject = b""
+
+    print(f"[fips-check] {len(shas_to_check)} of {num_commits} commits have FIPS protected changes")
+
+    return shas_to_check
+
+
 def run_cve_search(vulns_repo, kernel_repo, query) -> tuple[bool, Optional[str]]:
     """
     Run the cve_search script from the vulns repo.

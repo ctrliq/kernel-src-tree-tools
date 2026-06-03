@@ -6,16 +6,10 @@ import subprocess
 
 import git
 
-from kt.ktlib.ciq_helpers import get_backport_commit_data
-
-FIPS_PROTECTED_DIRECTORIES = [
-    b"arch/x86/crypto/",
-    b"crypto/asymmetric_keys/",
-    b"crypto/",
-    b"drivers/crypto/",
-    b"drivers/char/random.c",
-    b"include/crypto",
-]
+from kt.ktlib.ciq_helpers import (
+    check_for_fips_protected_changes,
+    get_backport_commit_data,
+)
 
 DEBUG = False
 
@@ -108,84 +102,6 @@ def get_branch_tag_sha_list(repo, branch, minor_version=False):
     return tags, last_resf_tag
 
 
-def check_for_fips_protected_changes(repo, branch, common_tag):
-    print("[rolling release update] Checking for FIPS protected changes")
-    repo.git.checkout(branch)
-    print(f"[rolling release update] Getting SHAS {common_tag.decode()}..HEAD")
-    results = subprocess.run(
-        ["git", "log", "--pretty=%H", f"{common_tag.decode()}..HEAD"],
-        stderr=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        cwd=repo.working_dir,
-    )
-    if results.returncode != 0:
-        print(results.stderr)
-        exit(1)
-
-    num_commits = len(results.stdout.split(b"\n"))
-    print("[rolling release update] Number of commits to check: ", num_commits)
-    shas_to_check = {}
-    commits_checked = 0
-
-    progress_interval = max(1, num_commits // 10)
-
-    print("[rolling release update] Checking modifications of shas")
-    if DEBUG:
-        print(results.stdout.split(b"\n"))
-    for sha in results.stdout.split(b"\n"):
-        commits_checked += 1
-        if commits_checked % progress_interval == 0:
-            print(f"[rolling release update] Checked {commits_checked} of {num_commits} commits")
-        if sha == b"":
-            continue
-        res = subprocess.run(
-            ["git", "show", "--name-only", "--pretty=%H %s", f"{sha.decode()}"],
-            stderr=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            cwd=repo.working_dir,
-        )
-        if res.returncode != 0:
-            print(res)
-            print(res.stderr)
-            exit(1)
-
-        sha_hash_and_subject = b""
-        touched_fips_files = set()
-
-        for line in res.stdout.split(b"\n"):
-            if sha_hash_and_subject == b"":
-                sha_hash_and_subject = line
-                continue
-            if line == b"":
-                continue
-
-            add_to_check = False
-
-            for dir in FIPS_PROTECTED_DIRECTORIES:
-                if line.startswith(dir):
-                    if DEBUG:
-                        print(f"FIPS protected directory {dir} change found in commit {sha}")
-                        print(sha_hash_and_subject)
-                    add_to_check = True
-                    if dir not in touched_fips_files:
-                        touched_fips_files.add(dir)
-
-            if add_to_check:
-                shas_to_check[sha_hash_and_subject.split(b" ")[0]] = touched_fips_files
-
-        if touched_fips_files:
-            print(
-                f"[rolling release update] Checked commit {sha} touched {len(touched_fips_files)} FIPS protected files"
-            )
-            for f in touched_fips_files:
-                print(f"  - {f}")
-        sha_hash_and_subject = b""
-
-    print(f"[rolling release update] {len(shas_to_check)} of {num_commits} commits have FIPS protected changes")
-
-    return shas_to_check
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Rolling release update")
     parser.add_argument("--repo", help="Repository path", required=True)
@@ -250,7 +166,12 @@ if __name__ == "__main__":
     print(repo.git.show('--pretty="%H %s"', "-s", common_sha.decode()))
 
     print("[rolling release update] Checking for FIPS protected changes between the common tag and HEAD")
-    shas_to_check = check_for_fips_protected_changes(repo, args.new_base_branch, common_sha)
+    repo.git.checkout(args.new_base_branch)
+    try:
+        shas_to_check = check_for_fips_protected_changes(args.repo, common_sha.decode(), "HEAD")
+    except RuntimeError as e:
+        print(f"[rolling release update] {e}")
+        exit(1)
     if shas_to_check and args.fips_override is False:
         for sha, dir in shas_to_check.items():
             print(f"## Commit {sha.decode()}")
