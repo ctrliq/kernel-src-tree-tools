@@ -12,7 +12,7 @@ import git
 from kt.ktlib.ciq_helpers import (
     CIQ_cherry_pick_commit_standardization,
     CIQ_commit_exists_in_current_branch,
-    CIQ_find_fixes_in_mainline_current_branch,
+    CIQ_find_fixes_in_mainline_current_branch_unapplied,
     CIQ_find_matching_cve,
     CIQ_fixes_references,
     CIQ_get_full_hash,
@@ -251,7 +251,9 @@ def cherry_pick_fixes(
     Fixes: <sha>. If any, these will also be cherry picked with the ciq
     tag = cve-bf. If the tag was cve-pre, it stays the same.
     """
-    fixes_in_mainline = CIQ_find_fixes_in_mainline_current_branch(os.getcwd(), upstream_ref, sha)
+    fixes_in_mainline = CIQ_find_fixes_in_mainline_current_branch_unapplied(
+        repo=os.getcwd(), upstream_ref=upstream_ref, hash_=sha
+    )
 
     # Replace cve with cve-bf
     # Leave cve-pre and cve-bf as they are

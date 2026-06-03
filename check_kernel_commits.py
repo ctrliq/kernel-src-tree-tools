@@ -7,6 +7,7 @@ import sys
 import textwrap
 
 from kt.ktlib.ciq_helpers import (
+    CIQ_filter_unapplied_commits,
     CIQ_find_fixes_in_mainline,
     CIQ_find_matching_cve,
     CIQ_get_commit_body,
@@ -126,6 +127,9 @@ def main():
     any_findings = False
     out_lines = []
 
+    # len(pr_commits) >= 1
+    oldest_pr_commit = pr_commits[-1]
+    newest_pr_commit = pr_commits[0]
     for sha in reversed(pr_commits):  # oldest first
         short_hash, subject = get_short_hash_and_subject(args.repo, sha)
         pr_commit_desc = f"{short_hash} ({subject})"
@@ -155,7 +159,68 @@ def main():
                     )
                     out_lines.append("")  # blank line
                 continue
-            fixes = CIQ_find_fixes_in_mainline(args.repo, args.pr_branch, upstream_ref, uhash)
+
+            # Find commits that contains Fixes: <uhash> in upstream_ref
+            fixes = CIQ_find_fixes_in_mainline(repo=args.repo, upstream_ref=upstream_ref, hash_=uhash)
+
+            # Filter the above commits if they were unapplied in the pr_branch (whole fetched history is used)
+            fixes_unapplied_without_limit = CIQ_filter_unapplied_commits(
+                repo=args.repo, pr_branch=args.pr_branch, commits=fixes
+            )
+
+            # Filter the above commits if they were unapplied in the pr_branch (oldest_pr_commit..newest_pr_commit interval is used)
+            fixes_unapplied_with_limit = CIQ_filter_unapplied_commits(
+                repo=args.repo, pr_branch=args.pr_branch, commits=fixes, interval=(oldest_pr_commit, newest_pr_commit)
+            )
+
+            # Issue a warning if we found that a commit that contains Fixes: <uhash> has been applied before <uhash>
+            # Very specific case, but check this PR where it did happen https://github.com/ctrliq/kernel-src-tree/pull/1212#issuecomment-4421837799
+            # It is up to the developer to assess the situation if this happens. In the example case, a commit X was pushed, then it was reverted by commit Y,
+            # then commit X was pushed again but automation locally did not flag that it was reverted before because its dependency Y appeared to have been applied
+            # in the local tree.
+            fixes_applied_before_commit = set(fixes_unapplied_with_limit) - set(fixes_unapplied_without_limit)
+            if fixes_applied_before_commit:
+                # Build the fixes display text
+                fixes_lines = []
+                for fix_hash, display_str in fixes_applied_before_commit:
+                    fixes_lines.append(display_str)
+
+                fixes_text = "\n".join(fixes_lines)
+                any_findings = True
+                if args.markdown:
+                    fixes_block = "    " + fixes_text.replace("\n", "\n    ")
+                    out_lines.append(
+                        f"- ❗ PR commit `{pr_commit_desc}` references upstream commit  \n"
+                        f"  `{short_uhash}` which has been referenced by a `Fixes:` tag in the upstream  \n"
+                        f"  Linux kernel:\n\n"
+                        f"```text\n{fixes_block}\n```\n"
+                        "   was applied after its deps, not before\n"
+                    )
+                else:
+                    prefix = "[FIXES-WRONG-ORDER] "
+                    header = (
+                        f"{prefix}PR commit {pr_commit_desc} references upstream commit "
+                        f"{short_uhash}, which has Fixes tags:"
+                    )
+                    out_lines.append(
+                        wrap_paragraph(
+                            header, width=80, initial_indent="", subsequent_indent=" " * len(prefix)
+                        )  # spaces for '[FIXES-WRONG-ORDER] '
+                    )
+                    out_lines.append("")  # blank line after 'Fixes tags:'
+                    for line in fixes_text.splitlines():
+                        out_lines.append("    " + line)
+
+                    out_lines.append(
+                        wrap_paragraph(
+                            text="was applied after its deps, not before\n",
+                            initial_indent=" " * len(prefix),
+                        )
+                    )
+                    out_lines.append("")  # blank line
+
+            # We continue the usual checks for fixes that were unapplied after the commit of interest
+            fixes = fixes_unapplied_with_limit
             if fixes:
                 any_findings = True
 
