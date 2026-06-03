@@ -229,21 +229,33 @@ def CIQ_hash_exists_in_ref(repo, pr_ref, hash_):
         return False
 
 
-def CIQ_commit_exists_in_branch(repo, pr_branch, upstream_hash_):
+def CIQ_commit_exists_in_branch(repo, pr_branch, upstream_hash_, interval=None):
     """
-    Return True if upstream_hash_ has been backported and it exists in the pr branch
+    Return True if upstream_hash_ has been backported and it exists in the pr branch.
+    If interval that consists of a pair of commit hashes is not None, we only
+    check the interval[0]..interval[1], otherwise the whole history of the pr_branch will be used.
     """
 
     # First check if the commit has been backported by CIQ
-    output = CIQ_run_git(repo, ["log", pr_branch, "--grep", "^commit " + upstream_hash_])
+    git_command = ["log", pr_branch, "--grep", "^commit " + upstream_hash_]
+    if interval:
+        oldest_commit, newest_commit = interval
+        git_command.append(f"{oldest_commit}..{newest_commit}")
+
+    output = CIQ_run_git(repo_path=repo, args=git_command)
     if output:
         return True
 
+    # If we are searching in the interval <oldest_commit>..<newest_commit>,
+    # we do not need to check way back if the commit came from upstream as it is
+    if interval:
+        return False
+
     # If it was not backported by CIQ, maybe it came from upstream as it is
-    return CIQ_hash_exists_in_ref(repo, pr_branch, upstream_hash_)
+    return CIQ_hash_exists_in_ref(repo=repo, pr_ref=pr_branch, hash_=upstream_hash_)
 
 
-def CIQ_commit_exists_in_current_branch(repo, upstream_hash_):
+def CIQ_commit_exists_in_current_branch(repo, upstream_hash_, interval=None):
     """
     Return True if upstream_hash_ has been backported and it exists in the current branch
     """
@@ -251,13 +263,14 @@ def CIQ_commit_exists_in_current_branch(repo, upstream_hash_):
     current_branch = CIQ_get_current_branch(repo)
     full_upstream_hash = CIQ_get_full_hash(repo, upstream_hash_)
 
-    return CIQ_commit_exists_in_branch(repo, current_branch, full_upstream_hash)
+    return CIQ_commit_exists_in_branch(
+        repo=repo, pr_branch=current_branch, upstream_hash_=full_upstream_hash, interval=interval
+    )
 
 
-def CIQ_find_fixes_in_mainline(repo, pr_branch, upstream_ref, hash_):
+def CIQ_find_fixes_in_mainline(repo, upstream_ref, hash_):
     """
-    Return unique commits in upstream_ref that have Fixes: <N chars of hash_> in their message, case-insensitive,
-    if they have not been committed in the pr_branch.
+    Return unique commits in upstream_ref that have Fixes: <N chars of hash_> in their message, case-insensitive.
     Start from 12 chars and work down to 6, but do not include duplicates if already found at a longer length.
     Returns a list of tuples: (full_hash, display_string)
     """
@@ -295,17 +308,51 @@ def CIQ_find_fixes_in_mainline(repo, pr_branch, upstream_ref, hash_):
         for fix in fixes:
             for prefix in hash_prefixes:
                 if fix.lower().startswith(prefix.lower()):
-                    if not CIQ_commit_exists_in_branch(repo, pr_branch, full_hash):
-                        results.append((full_hash, display_string))
+                    results.append((full_hash, display_string))
                     break
 
     return results
 
 
-def CIQ_find_fixes_in_mainline_current_branch(repo, upstream_ref, hash_):
+def CIQ_filter_unapplied_commits(repo, pr_branch, commits, interval=None):
+    """
+    Receives a list of tuples: (full_hash, display_string)
+    Returns filtered list with commits that were not applied in the pr_branch.
+    If interval that consists of a pair of commit hashes is not None, we only
+    check the interval[0]..interval[1], otherwise the whole history of the pr_branch will be used.
+
+    Returns a list of tuples: (full_hash, display_string)
+    """
+
+    results = []
+    for commit in commits:
+        full_hash = commit[0]
+        if not CIQ_commit_exists_in_branch(repo=repo, pr_branch=pr_branch, upstream_hash_=full_hash, interval=interval):
+            results.append(commit)
+
+    return results
+
+
+def CIQ_find_fixes_in_mainline_unapplied(repo, pr_branch, upstream_ref, hash_, interval=None):
+    """
+    Return unique commits in upstream_ref that have Fixes: <N chars of hash_> in their message, case-insensitive,
+    if they have not been committed in the pr_branch.
+    If interval that consists of a pair of commit hashes is not None, we only
+    check the interval[0]..interval[1], otherwise the whole history of the pr_branch will be used.
+    Start from 12 chars and work down to 6, but do not include duplicates if already found at a longer length.
+    Returns a list of tuples: (full_hash, display_string)
+    """
+
+    fixes = CIQ_find_fixes_in_mainline(repo=repo, upstream_ref=upstream_ref, hash_=hash_)
+    return CIQ_filter_unapplied_commits(repo=repo, pr_branch=pr_branch, commits=fixes, interval=interval)
+
+
+def CIQ_find_fixes_in_mainline_current_branch_unapplied(repo, upstream_ref, hash_, interval=None):
     current_branch = CIQ_get_current_branch(repo)
 
-    return CIQ_find_fixes_in_mainline(repo, current_branch, upstream_ref, hash_)
+    return CIQ_find_fixes_in_mainline_unapplied(
+        repo=repo, pr_branch=current_branch, upstream_ref=upstream_ref, hash_=hash_, interval=interval
+    )
 
 
 def CIQ_reset_HEAD(repo):
