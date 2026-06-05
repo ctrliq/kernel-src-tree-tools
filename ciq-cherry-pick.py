@@ -1,7 +1,7 @@
 import argparse
+import copy
 import logging
 import os
-import re
 import subprocess
 import sys
 import traceback
@@ -16,12 +16,13 @@ from kt.ktlib.ciq_helpers import (
     CIQ_find_matching_cve,
     CIQ_fixes_references,
     CIQ_get_full_hash,
-    CIQ_original_commit_author_to_tag_string,
+    CIQ_original_commit_author,
     CIQ_raise_or_warn,
     CIQ_reset_HEAD,
     CIQ_run_git,
     CIQ_setup_vulns_repo,
 )
+from kt.ktlib.commit_header import CommitHeader
 from kt.ktlib.jira import JiraInstance
 
 MERGE_MSG = git.Repo(os.getcwd()).git_dir + "/MERGE_MSG"
@@ -32,295 +33,271 @@ class CherryPickException(Exception):
     pass
 
 
-def extract_cve_from_tag(tag):
-    """
-    Extract CVE ID from matches like 'cve CVE-2026-1234' or 'cve-bf CVE-2026-1234'
-    Return None if no match
-    """
-    match = re.search(r"(?<!\S)(cve|cve-bf)\s+(CVE-\d{4}-\d+)", tag, re.IGNORECASE)
-    if match:
-        return match.group(2).upper()
-    return None
+class CherryPickCommand:
+    def __init__(self, args):
+        self._vulns_dir = args.vulns_dir
+        self._ignore_fixes_check = args.ignore_fixes_check
+        self._jira_dry_run = args.jira_dry_run
+        jira_url = args.jira_url or os.environ.get("JIRA_URL")
+        jira_user = args.jira_user or os.environ.get("JIRA_API_USER")
+        jira_key = args.jira_key or os.environ.get("JIRA_API_TOKEN")
 
-
-def find_lts_kernel(jira_instance, jira_ticket):
-    # Could be multiple tickets separated by ',', use the first one
-    ticket = jira_ticket.split(",")[0]
-    issue = jira_instance.get_issue(issue_key=ticket)
-    return issue.get_field("customfield_10381")
-
-
-def check_cve_number(sha, ciq_tags, jira_ticket, jira_instance, vulns_repo):
-    # If ciq_tags are None it means the cherry pick is not for a cve backport, so this check is not relevant
-    if not ciq_tags:
-        return ciq_tags, jira_ticket
-
-    # Temporary check until I figure out if we really need multiple tags
-    if len(ciq_tags) != 1:
-        print(f"len(ciq tags) != 1, not sure what to do: {ciq_tags}")
-        return ciq_tags, jira_ticket
-
-    if "cve" not in ciq_tags[0]:
-        # Not a cve, not interested
-        return ciq_tags, jira_ticket
-
-    matching_cve = CIQ_find_matching_cve(vulns_repo=vulns_repo, kernel_repo=os.getcwd(), hash_=sha)
-    if not matching_cve:
-        return ciq_tags, jira_ticket
-
-    new_ciq_tags = [f"cve {matching_cve}"]
-    new_jira = jira_ticket
-
-    print(f"CVE {matching_cve} for hash {sha} and original tags {ciq_tags}")
-
-    if not jira_instance or not jira_ticket:
-        return new_ciq_tags, new_jira
-
-    # Find the jira ticket corresponding to the CVE only if jira_instance
-    kernel = find_lts_kernel(jira_instance=jira_instance, jira_ticket=jira_ticket)
-    origin_cve = extract_cve_from_tag(ciq_tags[0])
-    if matching_cve != origin_cve:
-        jira_query = f'''"sRPM[Short text]" ~ "kernel" and "LTS Product[Dropdown]" = "{kernel}" and "CVE ID[Short text]" = "{matching_cve}"'''
-        issues, _ = jira_instance.search_issues(jql=jira_query)
-        if issues:
-            new_jira = issues[0].key
+        # TODO temporary, this will be different per commit
+        self._upstream_ref = args.upstream_ref
+        if not all([jira_url, jira_user, jira_key]):
+            print("[NOTE]: JIRA credentials not provided. Set via --jira-* args or environment variables.")
+            self._jira_instance = None
         else:
-            print(f"[WARNING] Could not find ticket for {matching_cve} for {kernel}, using old ticket {jira_ticket}")
+            self._jira_instance = JiraInstance(
+                server_url=jira_url, api_user=jira_user, api_key=jira_key, project_key="VULN"
+            )
 
-    return new_ciq_tags, new_jira
+        # If cherry picking a CVE, set up the vulns repo as well
+        if args.ciq_tag is not None:
+            CIQ_setup_vulns_repo(vulns_repo=args.vulns_dir)
 
+    # Helpers
+    def _find_lts_kernel(self, jira_ticket):
+        # TODO this won't be necessary when we move to kt
+        # Could be multiple tickets separated by ',', use the first one
+        ticket = jira_ticket.split(",")[0]
+        issue = self._jira_instance.get_issue(issue_key=ticket)
+        return issue.get_field("customfield_10381")
 
-def update_jira_success(jira_instance, ticket_key, jira_dry_run):
-    if ticket_key is None:
-        return
+    def _adapt_cve_number_with_jira(self, commit_header: CommitHeader) -> CommitHeader:
+        if not commit_header.is_cve():
+            return commit_header
 
-    if jira_dry_run:
-        print(f"[DRY-RUN] Would assign {ticket_key}")
-        print(f"[DRY-RUN] Would transition {ticket_key} to In Progress")
-        print(f"[DRY-RUN] Would add a label: automated-patch-applied to {ticket_key}")
-        print(
-            f"[DRY-RUN] Would add worklog: 30m time spent with comment 'CVE automation: Applied upstream patch' to {ticket_key}"
+        origin_cve_number = commit_header.cve_number()
+
+        vuln_cve_number = CIQ_find_matching_cve(
+            vulns_repo=self._vulns_dir, kernel_repo=os.getcwd(), hash_=commit_header.commit
+        )
+        if not vuln_cve_number:
+            # Continue with the existing tag
+            return commit_header
+
+        commit_header.set_cve(cve_number=vuln_cve_number)
+        if not self._jira_instance or not commit_header.jira:
+            return commit_header
+
+        # Find the jira ticket corresponding to the CVE if it does not matches the original
+        if vuln_cve_number != origin_cve_number:
+            kernel = self._find_lts_kernel(jira_ticket=commit_header.jira)
+            jira_query = f'''"sRPM[Short text]" ~ "kernel" and "LTS Product[Dropdown]" = "{kernel}" and "CVE ID[Short text]" = "{vuln_cve_number}"'''
+            issues, _ = self._jira_instance.search_issues(jql=jira_query)
+            if issues:
+                new_jira = issues[0].key
+                commit_header.jira = new_jira
+            else:
+                print(
+                    f"[WARNING] Could not find ticket for {vuln_cve_number} for {kernel}, using old ticket {commit_header.jira}"
+                )
+
+        return commit_header
+
+    def _update_jira_success(self, ticket_key: str):
+        if ticket_key is None:
+            return
+
+        if self._jira_dry_run:
+            print(f"[DRY-RUN] Would assign {ticket_key}")
+            print(f"[DRY-RUN] Would transition {ticket_key} to In Progress")
+            print(f"[DRY-RUN] Would add a label: automated-patch-applied to {ticket_key}")
+            print(
+                f"[DRY-RUN] Would add worklog: 30m time spent with comment 'CVE automation: Applied upstream patch' to {ticket_key}"
+            )
+
+            return
+
+        if self._jira_instance is None:
+            return
+
+        self._jira_instance.assign_ticket(issue_key=ticket_key)
+        self._jira_instance.transition_issue(issue_key=ticket_key, transition_name="In Progress")
+        self._jira_instance.update_labels(issue_key=ticket_key, labels=["automated-patch-applied"])
+        self._jira_instance.add_worklog(
+            issue_key=ticket_key,
+            time_spent="30m",
+            comment="CVE automation: Applied upstream patch",
+            started=datetime.now(),
         )
 
-        return
+    def _update_jira_failure(self, ticket_key: str):
+        if ticket_key is None:
+            return
 
-    if jira_instance is None:
-        return
+        if self._jira_dry_run:
+            print(f"[DRY-RUN] Would add a label: automated-patch-failed to {ticket_key}")
+            return
 
-    jira_instance.assign_ticket(issue_key=ticket_key)
-    jira_instance.transition_issue(issue_key=ticket_key, transition_name="In Progress")
-    jira_instance.update_labels(issue_key=ticket_key, labels=["automated-patch-applied"])
-    jira_instance.add_worklog(
-        issue_key=ticket_key,
-        time_spent="30m",
-        comment="CVE automation: Applied upstream patch",
-        started=datetime.now(),
-    )
+        if self._jira_instance is None:
+            return
 
+        self._jira_instance.update_labels(issue_key=ticket_key, labels=["automated-patch-failed"])
 
-def update_jira_failure(jira_instance, ticket_key, jira_dry_run):
-    if ticket_key is None:
-        return
+    def _check_fixes(self, sha):
+        """
+        Checks if commit has "Fixes:" references and if so, it checks if the
+        commit(s) that it tries to fix are part of the current branch
+        """
 
-    if jira_dry_run:
-        print(f"[DRY-RUN] Would add a label: automated-patch-failed to {ticket_key}")
-        return
+        fixes = CIQ_fixes_references(repo_path=os.getcwd(), sha=sha)
+        if len(fixes) == 0:
+            logging.warning("The commit you try to cherry pick has no Fixes: reference; review it carefully")
+            return
 
-    if jira_instance is None:
-        return
+        not_present_fixes = []
+        for fix in fixes:
+            if not CIQ_commit_exists_in_current_branch(os.getcwd(), fix):
+                not_present_fixes.append(fix)
 
-    jira_instance.update_labels(issue_key=ticket_key, labels=["automated-patch-failed"])
+        err = f"The commit you want to cherry pick has the following Fixes: references that are not part of the tree {not_present_fixes}"
+        CIQ_raise_or_warn(cond=not_present_fixes, error_msg=err, warn=self._ignore_fixes_check)
 
+    def _manage_commit_message(self, commit_header: CommitHeader, commit_successful: bool):
+        """
+        Standardize the commit message by including the ciq_tags, original
+        author and the original commit full sha.
 
-def check_fixes(sha, ignore_fixes_check):
-    """
-    Checks if commit has "Fixes:" references and if so, it checks if the
-    commit(s) that it tries to fix are part of the current branch
-    """
+        Original message location: MERGE_MSG
+        Makes a copy of the original message in MERGE_MSG_BAK
 
-    fixes = CIQ_fixes_references(repo_path=os.getcwd(), sha=sha)
-    if len(fixes) == 0:
-        logging.warning("The commit you try to cherry pick has no Fixes: reference; review it carefully")
-        return
+        The new standardized commit message is written to MERGE_MSG
+        """
 
-    not_present_fixes = []
-    for fix in fixes:
-        if not CIQ_commit_exists_in_current_branch(os.getcwd(), fix):
-            not_present_fixes.append(fix)
+        subprocess.run(["cp", MERGE_MSG, MERGE_MSG_BAK], check=True)
 
-    err = f"The commit you want to cherry pick has the following Fixes: references that are not part of the tree {not_present_fixes}"
-    CIQ_raise_or_warn(cond=not_present_fixes, error_msg=err, warn=ignore_fixes_check)
+        # TODO maybe do it earlier, idk
+        author = CIQ_original_commit_author(repo_path=os.getcwd(), sha=commit_header.commit)
+        if author is None:
+            raise RuntimeError(f"Could not find author of commit {commit_header.commit}")
+        commit_header.commit_author = author
 
+        try:
+            with open(MERGE_MSG, "r") as file:
+                original_msg = file.readlines()
+        except IOError as e:
+            raise RuntimeError(f"Failed to read commit message from {MERGE_MSG}: {e}") from e
 
-def manage_commit_message(full_sha, ciq_tags, jira_ticket, commit_successful):
-    """
-    Standardize the commit message by including the ciq_tags, original
-    author and the original commit full sha.
+        if not commit_successful:
+            commit_header.upstream_diff = "|"
 
-    Original message location: MERGE_MSG
-    Makes a copy of the original message in MERGE_MSG_BAK
+        new_msg = CIQ_cherry_pick_commit_standardization(lines=original_msg, commit_header=commit_header)
 
-    The new standardized commit message is written to MERGE_MSG
-    """
+        print(f"Cherry Pick New Message for {commit_header.commit}")
+        print(f"\n Original Message located here: {MERGE_MSG_BAK}")
 
-    subprocess.run(["cp", MERGE_MSG, MERGE_MSG_BAK], check=True)
+        try:
+            with open(MERGE_MSG, "w") as file:
+                file.writelines(new_msg)
+        except IOError as e:
+            raise RuntimeError(f"Failed to write commit message to {MERGE_MSG}: {e}") from e
 
-    # Make sure it's a deep copy because ciq_tags may be used for other cherry-picks
-    new_tags = [tag for tag in ciq_tags]
+    def full_cherry_pick(self, commit_header: CommitHeader):
+        """
+        Cherry picks a commit from upstream-ref along with its Fixes: references.
+        If cherry-pick or cherry_pick_fixes fail, the exception is propagated
+        If one of the cherry picks fails, an exception is returned and the previous
+        successful cherry picks are left as they are.
+        """
 
-    author = CIQ_original_commit_author_to_tag_string(repo_path=os.getcwd(), sha=full_sha)
-    if author is None:
-        raise RuntimeError(f"Could not find author of commit {full_sha}")
+        updated_commit_header = self._adapt_cve_number_with_jira(commit_header=commit_header)
 
-    new_tags.append(author)
-    try:
-        with open(MERGE_MSG, "r") as file:
-            original_msg = file.readlines()
-    except IOError as e:
-        raise RuntimeError(f"Failed to read commit message from {MERGE_MSG}: {e}") from e
+        # Cherry pick the commit
+        try:
+            self._cherry_pick(commit_header=updated_commit_header)
+        except (CherryPickException, RuntimeError) as e:
+            self._update_jira_failure(ticket_key=updated_commit_header.jira)
+            raise e
 
-    optional_msg = "" if commit_successful else "upstream-diff |"
-    new_msg = CIQ_cherry_pick_commit_standardization(
-        original_msg, full_sha, jira=jira_ticket, tags=new_tags, optional_msg=optional_msg
-    )
+        # Cherry pick the fixed-by dependencies
+        try:
+            self._cherry_pick_fixes(original_commit_header=updated_commit_header)
+        except (CherryPickException, RuntimeError) as e:
+            # TODO would add some extra information to jira if the cve-bf deps are not applied
+            raise e
 
-    print(f"Cherry Pick New Message for {full_sha}")
-    print(f"\n Original Message located here: {MERGE_MSG_BAK}")
+        # Update jira only if its deps are applied as well
+        self._update_jira_success(ticket_key=updated_commit_header.jira)
 
-    try:
-        with open(MERGE_MSG, "w") as file:
-            file.writelines(new_msg)
-    except IOError as e:
-        raise RuntimeError(f"Failed to write commit message to {MERGE_MSG}: {e}") from e
+    def _cherry_pick(self, commit_header: CommitHeader):
+        """
+        Cherry picks a commit and it adds the ciq standardized format
+        In case of error (cherry pick conflict):
+            - MERGE_MSG.bak contains the original commit message
+            - MERGE_MSG contains the standardized commit message
+            - Conflict has to be solved manually
+        In case of runtime errors that are not cherry pick conflicts, the cherry
+        pick changes are reverted. (git reset --hard HEAD)
 
+        In case of success:
+            - the commit is cherry picked
+            - MERGE_MSG.bak is deleted
+            - You can still see MERGE_MSG for the original message
+        """
 
-def cherry_pick(sha, ciq_tags, jira_ticket, ignore_fixes_check):
-    """
-    Cherry picks a commit and it adds the ciq standardized format
-    In case of error (cherry pick conflict):
-        - MERGE_MSG.bak contains the original commit message
-        - MERGE_MSG contains the standardized commit message
-        - Conflict has to be solved manually
-    In case of runtime errors that are not cherry pick conflicts, the cherry
-    pick changes are reverted. (git reset --hard HEAD)
+        # Expand the provided SHA1 to the full SHA1 in case it's either abbreviated or an expression
+        try:
+            full_sha = CIQ_get_full_hash(repo=os.getcwd(), short_hash=commit_header.commit)
+        except RuntimeError as e:
+            raise RuntimeError(f"Invalid commit SHA {commit_header.commit}: {e}") from e
 
-    In case of success:
-        - the commit is cherry picked
-        - MERGE_MSG.bak is deleted
-        - You can still see MERGE_MSG for the original message
-    """
+        commit_header.commit = full_sha
+        self._check_fixes(sha=full_sha)
 
-    # Expand the provided SHA1 to the full SHA1 in case it's either abbreviated or an expression
-    try:
-        full_sha = CIQ_get_full_hash(repo=os.getcwd(), short_hash=sha)
-    except RuntimeError as e:
-        raise RuntimeError(f"Invalid commit SHA {sha}: {e}") from e
+        # Commit message is in MERGE_MSG
+        commit_successful = True
+        try:
+            CIQ_run_git(repo_path=os.getcwd(), args=["cherry-pick", "-nsx", full_sha])
+        except RuntimeError:
+            commit_successful = False
 
-    check_fixes(sha=full_sha, ignore_fixes_check=ignore_fixes_check)
+        try:
+            self._manage_commit_message(commit_header=commit_header, commit_successful=commit_successful)
+        except RuntimeError as e:
+            CIQ_reset_HEAD(repo=os.getcwd())
+            raise RuntimeError(f"Could not create proper commit message: {e}") from e
 
-    # Commit message is in MERGE_MSG
-    commit_successful = True
-    try:
-        CIQ_run_git(repo_path=os.getcwd(), args=["cherry-pick", "-nsx", full_sha])
-    except RuntimeError:
-        commit_successful = False
+        if not commit_successful:
+            error_str = (
+                f"[FAILED] git cherry-pick -nsx {full_sha}\n"
+                "Manually resolve conflict and add explanation under `upstream-diff` tag in commit message\n"
+            )
+            raise CherryPickException(error_str)
 
-    try:
-        manage_commit_message(
-            full_sha=full_sha, ciq_tags=ciq_tags, jira_ticket=jira_ticket, commit_successful=commit_successful
-        )
-    except RuntimeError as e:
-        CIQ_reset_HEAD(repo=os.getcwd())
-        raise RuntimeError(f"Could not create proper commit message: {e}") from e
+        CIQ_run_git(repo_path=os.getcwd(), args=["commit", "-F", MERGE_MSG])
 
-    if not commit_successful:
-        error_str = (
-            f"[FAILED] git cherry-pick -nsx {full_sha}\n"
-            "Manually resolve conflict and add explanation under `upstream-diff` tag in commit message\n"
-        )
-        raise CherryPickException(error_str)
-
-    CIQ_run_git(repo_path=os.getcwd(), args=["commit", "-F", MERGE_MSG])
-
-
-def cherry_pick_fixes(
-    sha, ciq_tags, jira_ticket, upstream_ref, ignore_fixes_check, jira_instance, vulns_repo, jira_dry_run
-):
-    """
-    Check upstream_ref for commits that have this reference:
-    Fixes: <sha>. If any, these will also be cherry picked with the ciq
-    tag = cve-bf. If the tag was cve-pre, it stays the same.
-    """
-    fixes_in_mainline = CIQ_find_fixes_in_mainline_current_branch_unapplied(
-        repo=os.getcwd(), upstream_ref=upstream_ref, hash_=sha
-    )
-
-    # Replace cve with cve-bf
-    # Leave cve-pre and cve-bf as they are
-    bf_ciq_tags = [re.sub(r"^cve ", "cve-bf ", tag.strip()) for tag in ciq_tags]
-    for full_hash, display_str in fixes_in_mainline:
-        print(f"Extra cherry picking {display_str}")
-        full_cherry_pick(
-            sha=full_hash,
-            ciq_tags=bf_ciq_tags,
-            jira_ticket=jira_ticket,
-            upstream_ref=upstream_ref,
-            ignore_fixes_check=ignore_fixes_check,
-            jira_instance=jira_instance,
-            vulns_repo=vulns_repo,
-            jira_dry_run=jira_dry_run,
+    def _cherry_pick_fixes(self, original_commit_header: CommitHeader):
+        """
+        Check upstream_ref for commits that have this reference:
+        Fixes: <sha>. If any, these will also be cherry picked with the ciq
+        tag = cve-bf. If the tag was cve-pre, it stays the same.
+        """
+        fixes_in_mainline = CIQ_find_fixes_in_mainline_current_branch_unapplied(
+            repo=os.getcwd(), upstream_ref=self._upstream_ref, hash_=original_commit_header.commit
         )
 
+        for full_hash, display_str in fixes_in_mainline:
+            print(f"Extra cherry picking {full_hash}: {display_str}")
+            bf_commit_header = copy.deepcopy(original_commit_header)
+            bf_commit_header.make_it_cve_bf()
+            bf_commit_header.commit = full_hash
+            self.full_cherry_pick(commit_header=bf_commit_header)
 
-def full_cherry_pick(
-    sha, ciq_tags, jira_ticket, upstream_ref, ignore_fixes_check, jira_instance, vulns_repo, jira_dry_run
-):
-    """
-    Cherry picks a commit from upstream-ref along with its Fixes: references.
-    If cherry-pick or cherry_pick_fixes fail, the exception is propagated
-    If one of the cherry picks fails, an exception is returned and the previous
-    successful cherry picks are left as they are.
-    """
 
-    # Double check if cve number and jira matches the actual commit
-    updated_ciq_tags, updated_jira_ticket = check_cve_number(
-        sha=sha,
-        ciq_tags=ciq_tags,
-        jira_ticket=jira_ticket,
-        jira_instance=jira_instance,
-        vulns_repo=vulns_repo,
-    )
+def from_argsparse_to_commit_header(args: argparse.Namespace) -> CommitHeader:
+    args_dict = vars(args)
+    tags = []
+    if args.ciq_tag is not None:
+        tags = args.ciq_tag.split(",")  # TODO make it smarter maybe idk
 
-    # Cherry pick the commit
-    try:
-        cherry_pick(
-            sha=sha,
-            ciq_tags=updated_ciq_tags,
-            jira_ticket=updated_jira_ticket,
-            ignore_fixes_check=ignore_fixes_check,
-        )
-    except (CherryPickException, RuntimeError) as e:
-        update_jira_failure(jira_instance=jira_instance, ticket_key=updated_jira_ticket, jira_dry_run=jira_dry_run)
-        raise e
+        for tag in tags:
+            name, value = tag.split(" ")
+            args_dict[name] = value
+    print(args)
 
-    # Cherry pick the fixed-by dependencies
-    try:
-        cherry_pick_fixes(
-            sha=sha,
-            ciq_tags=updated_ciq_tags,
-            jira_ticket=updated_jira_ticket,
-            upstream_ref=upstream_ref,
-            ignore_fixes_check=ignore_fixes_check,
-            jira_instance=jira_instance,
-            vulns_repo=vulns_repo,
-            jira_dry_run=jira_dry_run,
-        )
-    except (CherryPickException, RuntimeError) as e:
-        # TODO would add some extra information to jira if the cve-bf deps are not applied
-        raise e
-
-    # Update jira only if its deps are applied as well
-    update_jira_success(jira_instance=jira_instance, ticket_key=updated_jira_ticket, jira_dry_run=jira_dry_run)
+    return CommitHeader.from_dict(args_dict)
 
 
 if __name__ == "__main__":
@@ -329,8 +306,8 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument("--sha", help="Target SHA1 to cherry-pick", required=True)
-    parser.add_argument("--ticket", help="Ticket associated to cherry-pick work, comma separated list is supported.")
+    parser.add_argument("--commit", help="Target SHA1 to cherry-pick", required=True)
+    parser.add_argument("--jira", help="Ticket associated to cherry-pick work, comma separated list is supported.")
     parser.add_argument(
         "--ciq-tag",
         help="Tags for commit message <feature><-optional modifier> <identifier>.\n"
@@ -375,48 +352,27 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    jira_url = args.jira_url or os.environ.get("JIRA_URL")
-    jira_user = args.jira_user or os.environ.get("JIRA_API_USER")
-    jira_key = args.jira_key or os.environ.get("JIRA_API_TOKEN")
-
-    if not all([jira_url, jira_user, jira_key]):
-        print("[NOTE]: JIRA credentials not provided. Set via --jira-* args or environment variables.")
-        jira_instance = None
-    else:
-        jira_instance = JiraInstance(server_url=jira_url, api_user=jira_user, api_key=jira_key, project_key="VULN")
-
-    if args.ciq_tag is not None:
-        try:
-            CIQ_setup_vulns_repo(vulns_repo=args.vulns_dir)
-        except RuntimeError as e:
-            print(e)
-            sys.exit(1)
-
+    # TODO move this to CommitHEADEr maybe
     # Expand the provided SHA1 to the full SHA1 in case it's either abbreviated or an expression
-    git_sha_res = subprocess.run(["git", "show", "--pretty=%H", "-s", args.sha], stdout=subprocess.PIPE)
+    git_sha_res = subprocess.run(["git", "show", "--pretty=%H", "-s", args.commit], stdout=subprocess.PIPE)
     if git_sha_res.returncode != 0:
         print(f"[FAILED] git show --pretty=%H -s {args.sha}")
         print("Subprocess Call:")
         print(git_sha_res)
         print("")
     else:
-        args.sha = git_sha_res.stdout.decode("utf-8").strip()
-
-    tags = []
-    if args.ciq_tag is not None:
-        tags = args.ciq_tag.split(",")
+        args.commit = git_sha_res.stdout.decode("utf-8").strip()
 
     try:
-        full_cherry_pick(
-            sha=args.sha,
-            ciq_tags=tags,
-            jira_ticket=args.ticket,
-            upstream_ref=args.upstream_ref,
-            ignore_fixes_check=args.ignore_fixes_check,
-            jira_instance=jira_instance,
-            vulns_repo=args.vulns_dir,
-            jira_dry_run=args.jira_dry_run,
-        )
+        cherry_pick_command = CherryPickCommand(args=args)
+    except Exception as e:
+        print(f"Setting chery pick command went wrong {e}")
+
+    commit_header = from_argsparse_to_commit_header(args)
+    print(commit_header)
+
+    try:
+        cherry_pick_command.full_cherry_pick(commit_header=commit_header)
     except CherryPickException as e:
         logging.error(e)
         sys.exit(1)
