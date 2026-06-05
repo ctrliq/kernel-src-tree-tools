@@ -15,11 +15,12 @@ class CommitHeader:
     """
 
     jira: Optional[str] = None
+    # TODO maybe have a union of these cve_bf, cve_pre and cve) idk
     cve: Optional[str] = None
     cve_bf: Optional[str] = None
     cve_pre: Optional[str] = None
-    commit: Optional[str] = None
     commit_author: Optional[str] = None
+    commit: Optional[str] = None
     upstream_diff: Optional[str] = None
 
     @classmethod
@@ -53,3 +54,47 @@ class CommitHeader:
         result = [f"{key.replace('_', '-')} {value}" for key, value in commit_header_dict.items() if value]
 
         return result
+
+    def is_cve(self) -> bool:
+        return self.cve or self.cve_bf or self.cve_pre
+
+    # A commit header may have multiple cve tags. But we are interested if it has the cve tag, since that
+    # is the commit it represents
+    # If not cve tag, check cve-bf or cve-pre
+    # we may have situations where a commit has (cve, cve-pre) or (cve, cve-bf) because a deps may be a cve itself, because we do not enforce this, but our current tooling uses only tag
+    def cve_number(self) -> str:
+        if self.cve:
+            return self.cve
+
+        if self.cve_bf:
+            return self.cve_bf
+
+        if self.cve_pre:
+            return self.cve_pre
+
+    def set_cve(self, cve_number):
+        # Make sure only one cve tag is used
+        # Our current tooling uses only 1 tag at the moment, but this may change and result in a commit that has 2 cve tags (cve, cve-bf) or (cve, cve-pre) for commits that are deps but cve as well
+        self.cve_bf = None
+        self.cve_pre = None
+        self.cve = cve_number
+        print(f"CVE {cve_number} for hash {self.commit} and original tags {self.print_cve_tags()}")
+
+    def print_cve_tags(self) -> str:
+        if not self.is_cve():
+            return ""
+
+        # TODO add a priint with the original tag situation
+        return ""
+
+    def make_it_cve_bf(self):
+        # Interchange cve with cve-bf
+        if not self.is_cve():
+            return
+
+        # It already has a cve_bf val, it's fine
+        if self.cve_bf:
+            return
+
+        self.cve_bf = self.cve
+        self.cve = None
