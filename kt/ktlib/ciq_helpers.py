@@ -12,6 +12,8 @@ from typing import Optional
 
 import git
 
+from kt.ktlib.commit_header import CommitHeader
+
 
 def process_full_commit_message(commit):
     """Process the full git commit message specific to the CIQ Kernel Tools.
@@ -106,29 +108,21 @@ def get_backport_commit_data(repo, branch, common_ancestor, allow_duplicates=Fal
     return upstream_commits, True
 
 
-def CIQ_cherry_pick_commit_standardization(lines, commit, tags=None, jira="", optional_msg=""):
+# This should have CommitHeader, body
+
+
+def CIQ_cherry_pick_commit_standardization(lines, commit_header: CommitHeader):
     """Standardize CIQ the cherry-pick commit message.
     Parameters:
     lines: Original SHAS commit message.
-    commit: The commit SHA1 that was cherry-picked.
-    tags: A list of tags to add to the commit message.
-    jira: The JIRA number to add to the commit message, this can be a comma separated list.
-    optional_msg: An optional message to add to the commit message.  Traditionally used for `upstream-diff`.
+    commit_header: CommitHeader dataclass that represents ciq custom tags.
 
     Return: The modified commit message passed in as lines.
     """
 
     # assemble in reverse by inserting lines below first blank line (line 2)
     lines.insert(2, "\n")
-    if optional_msg != "":
-        lines.insert(2, f"{optional_msg}\n")
-    lines.insert(2, f"commit {commit}\n")
-    if tags:
-        for tag in tags[::-1]:
-            lines.insert(2, f"{tag}\n")
-    if jira:
-        for i in jira.split(","):
-            lines.insert(2, f"jira {i.strip()}\n")
+    lines.insert(2, f"{commit_header.to_str()}\n")
 
     # We Need to indent lines that have email addresss as some tooling in the community
     # will atttempt to read these lines and email everyone on the list.  We do not want
@@ -151,13 +145,13 @@ def CIQ_cherry_pick_commit_standardization(lines, commit, tags=None, jira="", op
     return lines
 
 
-def CIQ_original_commit_author_to_tag_string(repo_path, sha):
-    """This will grab the original commit author and return the "tag" we use for the CIQ based header
+def CIQ_original_commit_author(repo_path, sha):
+    """This will return the original commit author
     Parameters:
     repo_path: pwd to the repository with the kernel mainline remote
     sha: this is the full commit sha we're going to backport
 
-    Return: String for Tag
+    Return: String for author
     """
     git_auth_res = subprocess.run(
         ["git", "show", '--pretty="%aN <%aE>"', "--no-patch", sha],
@@ -169,7 +163,8 @@ def CIQ_original_commit_author_to_tag_string(repo_path, sha):
         print(f"[FAILED] git show --pretty='%aN <%aE>' --no-patch {sha}")
         print(f"[FAILED][STDERR:{git_auth_res.returncode}] {git_auth_res.stderr.decode('utf-8')}")
         return None
-    return "commit-author " + git_auth_res.stdout.decode("utf-8").replace('"', "").strip()
+
+    return git_auth_res.stdout.decode("utf-8").replace('"', "").strip()
 
 
 def CIQ_run_git(repo_path, args):
