@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import re
 import subprocess
 import sys
 import textwrap
@@ -15,6 +14,7 @@ from kt.ktlib.ciq_helpers import (
     CIQ_run_git,
     CIQ_setup_vulns_repo,
 )
+from kt.ktlib.commit_header import CommitHeader
 
 
 def ref_exists(repo, ref):
@@ -57,15 +57,6 @@ def wrap_paragraph(text, width=80, initial_indent="", subsequent_indent=""):
         break_on_hyphens=False,
     )
     return wrapper.fill(text)
-
-
-def extract_cve_from_message(msg):
-    """Extract CVE reference from commit message. Returns CVE ID or None.
-    Only matches 'cve CVE-2025-12345', ignores 'cve-bf' and 'cve-pre' variants."""
-    match = re.search(r"(?<!\S)cve\s+(CVE-\d{4}-\d+)", msg, re.IGNORECASE)
-    if match:
-        return match.group(1).upper()
-    return None
 
 
 def main():
@@ -134,32 +125,31 @@ def main():
         short_hash, subject = get_short_hash_and_subject(args.repo, sha)
         pr_commit_desc = f"{short_hash} ({subject})"
         msg = CIQ_get_commit_body(args.repo, sha)
-        upstream_hashes = re.findall(r"^commit\s+([0-9a-fA-F]{40})", msg, re.MULTILINE)
-        for uhash in upstream_hashes:
-            short_uhash = uhash[:12]
-            # Ensure the referenced commit in the PR actually exists in the upstream ref.
-            exists = hash_exists_in_mainline(args.repo, upstream_ref, uhash)
-            if not exists:
-                any_findings = True
-                if args.markdown:
-                    out_lines.append(
-                        f"- ❗ PR commit `{pr_commit_desc}` references upstream commit  \n"
-                        f"  `{short_uhash}` which does **not** exist in the upstream Linux kernel.\n"
-                    )
-                else:
-                    prefix = "[NOTFOUND] "
-                    header = (
-                        f"{prefix}PR commit {pr_commit_desc} references upstream commit "
-                        f"{short_uhash}, which does not exist in kernel-mainline."
-                    )
-                    out_lines.append(
-                        wrap_paragraph(
-                            header, width=80, initial_indent="", subsequent_indent=" " * len(prefix)
-                        )  # spaces for '[NOTFOUND] '
-                    )
-                    out_lines.append("")  # blank line
-                continue
-
+        commit_header = CommitHeader.from_commit_body(commit_body=msg)
+        short_uhash = commit_header.commit[:12]
+        uhash = commit_header.commit
+        # Ensure the referenced commit in the PR actually exists in the upstream ref.
+        exists = hash_exists_in_mainline(args.repo, upstream_ref, uhash)
+        if not exists:
+            any_findings = True
+            if args.markdown:
+                out_lines.append(
+                    f"- ❗ PR commit `{pr_commit_desc}` references upstream commit  \n"
+                    f"  `{short_uhash}` which does **not** exist in the upstream Linux kernel.\n"
+                )
+            else:
+                prefix = "[NOTFOUND] "
+                header = (
+                    f"{prefix}PR commit {pr_commit_desc} references upstream commit "
+                    f"{short_uhash}, which does not exist in kernel-mainline."
+                )
+                out_lines.append(
+                    wrap_paragraph(
+                        header, width=80, initial_indent="", subsequent_indent=" " * len(prefix)
+                    )  # spaces for '[NOTFOUND] '
+                )
+                out_lines.append("")  # blank line
+        else:
             # Find commits that contains Fixes: <uhash> in upstream_ref
             fixes = CIQ_find_fixes_in_mainline(repo=args.repo, upstream_ref=upstream_ref, hash_=uhash)
 
@@ -267,7 +257,7 @@ def main():
 
             # Check CVE if enabled
             if args.check_cves:
-                cve_id = extract_cve_from_message(msg)
+                cve_id = commit_header.cve
 
                 # Check if the upstream commit has a CVE associated with it
                 try:
