@@ -2,10 +2,11 @@
 
 import argparse
 import os
-import re
 import subprocess
 import sys
 import tempfile
+
+from kt.ktlib.commit_header import CommitHeader
 
 
 def run_git(repo, args):
@@ -50,15 +51,6 @@ def get_short_hash_and_subject(repo, sha):
         return short_hash, subject
     except RuntimeError as e:
         raise RuntimeError(f"Failed to get short hash and subject for {sha}: {e}")
-
-
-def extract_upstream_hash(msg):
-    """Extract the upstream commit hash from a commit message.
-    Looks for lines like 'commit <hash>' in the commit message."""
-    match = re.search(r"^commit\s+([0-9a-fA-F]{12,40})", msg, re.MULTILINE)
-    if match:
-        return match.group(1)
-    return None
 
 
 def run_interdiff(repo, backport_sha, upstream_sha, interdiff_path):
@@ -178,7 +170,8 @@ def main():
             pr_commit_desc = f"{short_hash} ({subject})"
 
             msg = get_commit_message(args.repo, sha)
-            upstream_hash = extract_upstream_hash(msg)
+            commit_header = CommitHeader.from_commit_body(commit_body=msg)
+            upstream_hash = commit_header.commit
         except RuntimeError as e:
             # Handle errors getting commit information
             any_differences = True
