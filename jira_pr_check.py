@@ -8,6 +8,7 @@ import sys
 
 from jira import JIRA
 
+from kt.ktlib.commit_header import CommitHeader
 from release_config import jira_field_map, release_map
 
 CVE_PATTERN = r"CVE-\d{4}-\d{4,7}"
@@ -154,47 +155,15 @@ def main():
             sys.exit(1)
 
         commit_msg = result.stdout.strip()
+        commit_header = CommitHeader.from_commit_body(commit_body=commit_msg)
+        print(commit_header)
         lines = commit_msg.split("\n")
 
         # Extract summary line (first line)
         summary = lines[0] if lines else ""
 
-        # Extract header (start after first blank line, end at next blank line)
-        header_lines = []
-        in_header = False
-        vuln_tickets = []
-        commit_cves = []
-
-        for i, line in enumerate(lines):
-            if i == 0:  # Skip summary line
-                continue
-            if not in_header and line.strip() == "":  # First blank line, start of header
-                in_header = True
-                continue
-            if in_header and line.strip() == "":  # Second blank line, end of header
-                break
-            if in_header:
-                header_lines.append(line)
-                stripped = line.strip()
-
-                # Check for jira line with VULN
-                if stripped.lower().startswith("jira ") and "vuln-" in stripped.lower():
-                    parts = stripped.split()
-                    for part in parts[1:]:  # Skip 'jira' keyword
-                        if part.upper().startswith("VULN-"):
-                            vuln_tickets.append(part.upper())
-
-                # Check for CVE line
-                # Assume format: "cve CVE-YYYY-NNNN", "cve-bf CVE-YYYY-NNNN", or "cve-pre CVE-YYYY-NNNN"
-                # There will only be one CVE per line, but possibly multiple CVEs listed
-                if stripped.lower().startswith(("cve ", "cve-bf ", "cve-pre ")):
-                    parts = stripped.split()
-                    for part in parts[1:]:  # Skip 'cve'/'cve-bf'/'cve-pre' keyword/tag
-                        # CVES always start with CVE-
-                        if part.upper().startswith("CVE-"):
-                            commit_cves.append(part.upper())
-
-        header = "\n".join(header_lines)
+        vuln_tickets = [commit_header.jira] if commit_header.jira else []
+        commit_cves = commit_header.all_cves()
 
         # Check VULN tickets against merge target
         lts_match = None
@@ -324,7 +293,7 @@ def main():
             {
                 "sha": sha,
                 "summary": summary,
-                "header": header,
+                "header": commit_header.to_str(),
                 "full_message": commit_msg,
                 "vuln_tickets": vuln_tickets,
                 "lts_match": lts_match,
