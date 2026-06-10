@@ -98,3 +98,18 @@ class CommitHeader:
 
         self.cve_bf = self.cve
         self.cve = None
+
+    def all_cves(self) -> list:
+        """Return a list of cve numbers"""
+
+        cves = []
+        if self.cve:
+            cves.append(self.cve)
+
+        if self.cve_bf:
+            cves.append(self.cve_bf)
+
+        if self.cve_pre:
+            cves.append(self.cve_pre)
+
+        return cves
