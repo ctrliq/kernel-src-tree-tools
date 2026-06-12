@@ -34,30 +34,14 @@ def get_commit_maps_from_backport_data(repo_path, branch, common_tag):
     from 'commit <sha>' lines in commit bodies. This ensures we correctly identify
     duplicates even when different CIQ commits reference the same upstream commit.
 
-    KNOWN BEHAVIOR - Two-phase commit ordering:
-        The commit_map is populated in two phases which causes commits to appear
-        in a different order than their original git log (chronological) order:
-
-        Phase 1: get_backport_commit_data() inserts commits that have an upstream
-            'commit <sha>' reference in their body, in git log order (newest first).
-        Phase 2: A second git log pass adds any remaining commits (CIQ-only commits
-            without upstream references, e.g. github actions, config changes) that
-            were not captured in Phase 1.
-
-        Because Python dicts preserve insertion order, Phase 2 commits are appended
-        after all Phase 1 commits. When reversed() is called at cherry-pick time,
-        Phase 2 (CIQ-only) commits end up at the beginning of the sequence rather
-        than in their original chronological position relative to Phase 1 commits.
-
-        This means CIQ-only commits (like "github actions: ..." commits) will be
-        cherry-picked earlier in the sequence than they appeared on the source branch.
+    Uses git log order as the single source of truth for commit ordering, so that
+    reversed() at cherry-pick time replays commits in their original chronological
+    order regardless of whether they have upstream references.
 
     Returns:
         commit_map: dict mapping CIQ commit SHA -> upstream commit SHA (or "" if no upstream)
         commit_map_rev: dict mapping upstream commit SHA -> CIQ commit SHA
     """
-    # get_backport_commit_data returns:
-    # { "upstream_sha": { "repo_commit": "ciq_sha", "upstream_subject": "...", ... } }
     backport_data, success = get_backport_commit_data(
         repo_path, branch, common_tag.decode() if isinstance(common_tag, bytes) else common_tag, allow_duplicates=True
     )
@@ -66,27 +50,24 @@ def get_commit_maps_from_backport_data(repo_path, branch, common_tag):
         print("[rolling release update] WARNING: Duplicate upstream commits detected in backport data")
         print("[rolling release update] Continuing with allow_duplicates=True")
 
-    # Transform to the format expected by the rest of the script
-    commit_map = {}
+    backport_by_ciq = {}
     commit_map_rev = {}
 
     for upstream_sha, data in backport_data.items():
         ciq_sha = data["repo_commit"]
-        commit_map[ciq_sha] = upstream_sha
+        backport_by_ciq[ciq_sha] = upstream_sha
         commit_map_rev[upstream_sha] = ciq_sha
 
-    # Also get all commits (including those without upstream references)
-    # to ensure we have a complete list
     repo = git.Repo(repo_path)
     repo.git.checkout(branch)
     common_tag_str = common_tag.decode() if isinstance(common_tag, bytes) else common_tag
     all_commits = repo.git.log("--pretty=%H", f"{common_tag_str}..HEAD").split("\n")
 
-    # Add commits without upstream references (CIQ-specific commits)
+    commit_map = {}
     for commit_sha in all_commits:
         commit_sha = commit_sha.strip()
-        if commit_sha and commit_sha not in commit_map:
-            commit_map[commit_sha] = ""
+        if commit_sha:
+            commit_map[commit_sha] = backport_by_ciq.get(commit_sha, "")
 
     return commit_map, commit_map_rev
 
