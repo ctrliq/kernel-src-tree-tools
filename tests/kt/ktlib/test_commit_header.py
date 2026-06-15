@@ -6,7 +6,9 @@ def test_from_commit_body():
 jira VULN-181881
 cve-bf CVE-2026-31431
 commit-author Yucheng Lu <kanolyc@gmail.com>
-commit 5db6ef9847717329f12c5ea8aba7e9f588a980c0
+commit -
+commit-source-sha 5db6ef9847717329f12c5ea8aba7e9f588a980c0
+commit-source centos-stream-9, cryptodev
 
 authencesn requires either a zero authsize or an authsize of at least
 4 bytes because the ESN encrypt/decrypt paths always move 4 bytes of

@@ -1,0 +1,4 @@
+arm64: git://git.kernel.org/pub/scm/linux/kernel/git/arm64/linux.git
+centos-stream-9: https://gitlab.com/redhat/centos-stream/src/kernel/centos-stream-9.git
+centos-stream-10: git://git.kernel.org/pub/scm/linux/kernel/git/arm64/linux.git
+linux-stable: git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git

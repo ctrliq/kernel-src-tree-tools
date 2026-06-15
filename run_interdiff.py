@@ -7,6 +7,7 @@ import sys
 import tempfile
 
 from kt.ktlib.commit_header import CommitHeader
+from kt.ktlib.git_remote import UpstreamRemotes
 
 
 def run_git(repo, args):
@@ -151,6 +152,8 @@ def main():
         print("Please fetch or create the required references before running this script.")
         sys.exit(1)
 
+    upstream_remotes = UpstreamRemotes.from_yaml()
+
     # Get all PR commits
     pr_commits = get_pr_commits(args.repo, args.pr_branch, args.base_branch)
     if not pr_commits:
@@ -171,7 +174,12 @@ def main():
 
             msg = get_commit_message(args.repo, sha)
             commit_header = CommitHeader.from_commit_body(commit_body=msg)
-            upstream_hash = commit_header.commit
+
+            (upstream_remote, upstream_hash) = commit_header.extract_upstream_name_and_sha()
+            if upstream_remote:
+                # Make sure the remote is added and fetched so that interdiff works
+                print(f"FETCHING REMOTE {upstream_remote}")
+                upstream_remotes.fetch_remote(remote_name=upstream_remote, repo_dir=args.repo)
         except RuntimeError as e:
             # Handle errors getting commit information
             any_differences = True

@@ -23,6 +23,7 @@ from kt.ktlib.ciq_helpers import (
     CIQ_setup_vulns_repo,
 )
 from kt.ktlib.commit_header import CommitHeader
+from kt.ktlib.git_remote import UpstreamRemotes
 from kt.ktlib.jira import JiraInstance
 
 MERGE_MSG = git.Repo(os.getcwd()).git_dir + "/MERGE_MSG"
@@ -168,12 +169,6 @@ class CherryPickCommand:
 
         subprocess.run(["cp", MERGE_MSG, MERGE_MSG_BAK], check=True)
 
-        # TODO maybe do it earlier, idk
-        author = CIQ_original_commit_author(repo_path=os.getcwd(), sha=commit_header.commit)
-        if author is None:
-            raise RuntimeError(f"Could not find author of commit {commit_header.commit}")
-        commit_header.commit_author = author
-
         try:
             with open(MERGE_MSG, "r") as file:
                 original_msg = file.readlines()
@@ -185,7 +180,6 @@ class CherryPickCommand:
 
         new_msg = CIQ_cherry_pick_commit_standardization(lines=original_msg, commit_header=commit_header)
 
-        print(f"Cherry Pick New Message for {commit_header.commit}")
         print(f"\n Original Message located here: {MERGE_MSG_BAK}")
 
         try:
@@ -237,21 +231,21 @@ class CherryPickCommand:
             - You can still see MERGE_MSG for the original message
         """
 
-        # Expand the provided SHA1 to the full SHA1 in case it's either abbreviated or an expression
-        try:
-            full_sha = CIQ_get_full_hash(repo=os.getcwd(), short_hash=commit_header.commit)
-        except RuntimeError as e:
-            raise RuntimeError(f"Invalid commit SHA {commit_header.commit}: {e}") from e
-
-        commit_header.commit = full_sha
-        self._check_fixes(sha=full_sha)
+        _, upstream_hash = commit_header.extract_upstream_name_and_sha()
+        self._check_fixes(sha=upstream_hash)
 
         # Commit message is in MERGE_MSG
         commit_successful = True
         try:
-            CIQ_run_git(repo_path=os.getcwd(), args=["cherry-pick", "-nsx", full_sha])
+            print(f"Cherry Pick New Message for {upstream_hash}")
+            CIQ_run_git(repo_path=os.getcwd(), args=["cherry-pick", "-nsx", upstream_hash])
         except RuntimeError:
             commit_successful = False
+
+        author = CIQ_original_commit_author(repo_path=os.getcwd(), sha=upstream_hash)
+        if author is None:
+            raise RuntimeError(f"Could not find author of commit {commit_header.commit}")
+        commit_header.commit_author = author
 
         try:
             self._manage_commit_message(commit_header=commit_header, commit_successful=commit_successful)
@@ -261,7 +255,7 @@ class CherryPickCommand:
 
         if not commit_successful:
             error_str = (
-                f"[FAILED] git cherry-pick -nsx {full_sha}\n"
+                f"[FAILED] git cherry-pick -nsx {upstream_hash}\n"
                 "Manually resolve conflict and add explanation under `upstream-diff` tag in commit message\n"
             )
             raise CherryPickException(error_str)
@@ -275,18 +269,30 @@ class CherryPickCommand:
         tag = cve-bf. If the tag was cve-pre, it stays the same.
         """
         fixes_in_mainline = CIQ_find_fixes_in_mainline_current_branch_unapplied(
-            repo=os.getcwd(), upstream_ref=self._upstream_ref, hash_=original_commit_header.commit
+            repo=os.getcwd(),
+            upstream_ref=self._upstream_ref,
+            hash_=original_commit_header.commit,  # TODO this original_commit_header stuff
         )
 
+        # TODO print all fixes I think
         for full_hash, display_str in fixes_in_mainline:
             print(f"Extra cherry picking {full_hash}: {display_str}")
             bf_commit_header = copy.deepcopy(original_commit_header)
             bf_commit_header.make_it_cve_bf()
             bf_commit_header.commit = full_hash
+            # TODO delete the sha / commit stuff
             self.full_cherry_pick(commit_header=bf_commit_header)
 
 
 def from_argsparse_to_commit_header(args: argparse.Namespace) -> CommitHeader:
+    upstream_remotes = UpstreamRemotes.from_yaml()
+    if args.commit and args.commit != "-":
+        args.commit = CIQ_get_full_hash(repo=os.getcwd(), short_hash=args.commit)
+
+    if args.commit_source_sha and args.commit_source:
+        upstream_remotes.fetch_remote(remote_name=args.commit_source, repo_dir=os.getcwd())
+        args.commit_source_sha = CIQ_get_full_hash(repo=os.getcwd(), short_hash=args.commit_source_sha)
+
     args_dict = vars(args)
     tags = []
     if args.ciq_tag is not None:
@@ -295,6 +301,7 @@ def from_argsparse_to_commit_header(args: argparse.Namespace) -> CommitHeader:
         for tag in tags:
             name, value = tag.split(" ")
             args_dict[name] = value
+
     print(args)
 
     return CommitHeader.from_dict(args_dict)
@@ -306,7 +313,9 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument("--commit", help="Target SHA1 to cherry-pick", required=True)
+    parser.add_argument(
+        "--commit", help="Target SHA1 to cherry-pick", required=False
+    )  # TODO check if commit exists or not
     parser.add_argument("--jira", help="Ticket associated to cherry-pick work, comma separated list is supported.")
     parser.add_argument(
         "--ciq-tag",
@@ -321,6 +330,15 @@ if __name__ == "__main__":
         default="origin/kernel-mainline",
         help="Reference to upstream mainline branch (default: origin/kernel-mainline)",
     )
+    # TODO upstream ref, what is this??
+    parser.add_argument(
+        "--commit-source",
+        help="Reference to upstream remote name if mainline is not the source",
+    )
+    parser.add_argument(
+        "--commit-source-sha", help="Actual commit sha of the commit is fetched from other sources than mainline"
+    )
+
     parser.add_argument(
         "--ignore-fixes-check",
         action="store_true",
@@ -351,17 +369,6 @@ if __name__ == "__main__":
         "--vulns-dir", default="../vulns", help="Path to the kernel vulnerabilities repo (default: ../vulns)"
     )
     args = parser.parse_args()
-
-    # TODO move this to CommitHEADEr maybe
-    # Expand the provided SHA1 to the full SHA1 in case it's either abbreviated or an expression
-    git_sha_res = subprocess.run(["git", "show", "--pretty=%H", "-s", args.commit], stdout=subprocess.PIPE)
-    if git_sha_res.returncode != 0:
-        print(f"[FAILED] git show --pretty=%H -s {args.sha}")
-        print("Subprocess Call:")
-        print(git_sha_res)
-        print("")
-    else:
-        args.commit = git_sha_res.stdout.decode("utf-8").strip()
 
     try:
         cherry_pick_command = CherryPickCommand(args=args)
