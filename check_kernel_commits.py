@@ -128,6 +128,10 @@ def main():
         commit_header = CommitHeader.from_commit_body(commit_body=msg)
         short_uhash = commit_header.commit[:12]
         uhash = commit_header.commit
+        if not uhash or uhash == "-":
+            print(f"[NOTE]: Mainline commit not present for {pr_commit_desc}, no extra checks for this commit")
+            continue
+
         # Ensure the referenced commit in the PR actually exists in the upstream ref.
         exists = hash_exists_in_mainline(args.repo, upstream_ref, uhash)
         if not exists:
