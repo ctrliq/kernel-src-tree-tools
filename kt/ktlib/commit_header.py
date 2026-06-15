@@ -21,6 +21,9 @@ class CommitHeader:
     cve_pre: Optional[str] = None
     commit_author: Optional[str] = None
     commit: Optional[str] = None
+    commit_source: Optional[str] = None
+    commit_source_sha: Optional[str] = None
+    commit_source_author: Optional[str] = None
     upstream_diff: Optional[str] = None
 
     @classmethod
@@ -113,3 +116,16 @@ class CommitHeader:
             cves.append(self.cve_pre)
 
         return cves
+
+    def extract_upstream_name_and_sha(self):
+        """Return a pair of (commit_source, commit_source_sha) if source is not mainline
+        Otherwise returns (None, commit) if the source is mainline
+        """
+
+        if self.commit_source_sha:
+            return (self.commit_source, self.commit_source_sha)
+
+        if self.commit and self.commit != "-":
+            return (None, self.commit)
+
+        return (None, None)
