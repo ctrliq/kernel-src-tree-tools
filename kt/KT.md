@@ -141,7 +141,6 @@ fipslegacy-8.6
 lts-8.6
 lts-8.8
 lts-9.2
-lts-9.4
 ```
 
 ### kt setup
@@ -197,7 +196,7 @@ before creating it from scratch again.
 
 #### Example:
 ```
-$ kt checkout lts-9.4
+$ kt checkout lts-9.2
 ```
 
 For this configuration
@@ -212,18 +211,18 @@ For this configuration
 ```
 
 This is the working directory for this kernel:
-`~/ciq/kernels/lts-9.4`.
+`~/ciq/kernels/lts-9.2`.
 
 2 git worktrees are created:
 
 1. kernel-dist-git
 
-    This representes branch `{<user>}/lts9_4:origin/lts9_4`.
+    This representes branch `{<user>}/lts9.2:origin/lts9.2`.
     The source repo is ~/ciq/dist-git-tree-lts
 
 2. kernel-src-tree
 
-    This representes branch `{<user>}/ciqlts9_4:origin/ciqlts9_4`
+    This representes branch `{<user>}/ciqlts9.2:origin/ciqlts9.2`
     The source repo is ~/ciq/kernel-src-tree
 
 ### kt vm
@@ -247,7 +246,7 @@ $ sudo usermod -a -G libvirt $(whoami)
 
 #### Example:
 ```
-$ kt vm lts-9.4
+$ kt vm lts-9.2
 ```
 
 For this configuration
@@ -261,23 +260,23 @@ For this configuration
 }
 ```
 
-Here is the qcow2 vm image used as source for other vms for 9.4 kernels as well:
+Here is the qcow2 vm image used as source for other vms for 9.2 kernels as well:
 
 ```
-~/ciq/default_test_images/Rocky-9.4-GenericCloud.latest.x86_64.qcow2
+~/ciq/default_test_images/Rocky-9.2-GenericCloud.latest.x86_64.qcow2
 ```
 
 And here are the actual vm configuration and image files:
 ```
-ciq/tmp/virt-images/lts-9.4/cloud-init.yaml
-ciq/tmp/virt-images/lts-9.4/lts-9.4.qcow2
+ciq/tmp/virt-images/lts-9.2/cloud-init.yaml
+ciq/tmp/virt-images/lts-9.2/lts-9.2.qcow2
 ```
 
 The cloud-init.yaml file is adapted from kt/data/cloud-init.yaml base file.
 
 `virt-install` command is then used to create the vm.
 
-If `--console` option is used, then `virsh --connect qemu://system console lts9-4`
+If `--console` option is used, then `virsh --connect qemu://system console lts9.2`
 is run (indirectly).
 
 

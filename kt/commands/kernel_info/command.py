@@ -11,12 +11,12 @@ for the nested values, like dist_git_root and src_tree_root.
 Examples:
 
 \b
-$ kt kernel-info lts-9.4
+$ kt kernel-info lts-9.2
 {
-  "name": "lts-9.4",
-  "src_tree_branch": "ciqlts9_4",
-  "dist_git_branch": "lts94-9",
-  "mock_config": "rocky-lts94",
+  "name": "lts-9.2",
+  "src_tree_branch": "ciqlts9.2",
+  "dist_git_branch": "lts92-9",
+  "mock_config": "rocky-lts92",
   "automated": true
 }
 """

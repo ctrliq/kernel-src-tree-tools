@@ -78,12 +78,12 @@ class Vm:
 
     @classmethod
     def _extract_major(cls, full_version):
-        # lts-9.4 --> return 9
+        # lts-9.2 --> return 9
         return full_version.split("-")[-1].split(".")[0]
 
     @classmethod
     def _extract_major_minor(cls, full_version):
-        # lts-9.4 -> return 9.4
+        # lts-9.2 -> return 9.2
         return full_version.split("-")[-1]
 
     @classmethod

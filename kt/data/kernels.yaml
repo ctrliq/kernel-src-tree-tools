@@ -28,14 +28,6 @@ kernels:
     mock_config: rocky-lts92
     automated: true
 
-  lts-9.4:
-    src_tree_root: kernel-src-tree
-    src_tree_branch: ciqlts9_4
-    dist_git_root: dist-git-tree-lts
-    dist_git_branch: lts94-9
-    mock_config: rocky-lts94
-    automated: true
-
   lts-9.6:
     src_tree_root: kernel-src-tree
     src_tree_branch: ciqlts9_6

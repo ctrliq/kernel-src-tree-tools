@@ -15,17 +15,17 @@ This command will push this branch to the origin.
 Examples:
 
 \b
-$ kt git-push lts-9.4 -k
-Will push the branch {USER}_ciqlts-9.4 from kernel-src-tree from lts-9.4 kernel
+$ kt git-push lts-9.2 -k
+Will push the branch {USER}_ciqlts-9.2 from kernel-src-tree from lts-9.2 kernel
 workspace.
 
 \b
-$ kt git-push lts-9.4 -k -f
+$ kt git-push lts-9.2 -k -f
 Same as above but it will force push
 
 \b
-$ kt git-push lts-9.4 -d
-Will push the branch {USER}_lts94-9 from kernel-dist-tree from lts-9.4 kernel
+$ kt git-push lts-9.2 -d
+Will push the branch {USER}_lts92-9 from kernel-dist-tree from lts-9.2 kernel
 workspace.
 
 """

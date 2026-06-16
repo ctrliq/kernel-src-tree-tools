@@ -52,7 +52,7 @@ class ContentRelease:
         or globally.
 
         Args:
-            kernel_workspace: The name of the kernel workspace (e.g., 'lts-9.4')
+            kernel_workspace: The name of the kernel workspace (e.g., 'lts-9.2')
         """
         logging.info(f"Running prepare step for kernel workspace: {kernel_workspace}")
 
@@ -226,7 +226,7 @@ class ContentRelease:
         Verifies mock is available and user is in mock group, then builds the kernel RPMs.
 
         Args:
-            kernel_workspace: The name of the kernel workspace (e.g., 'lts-9.4')
+            kernel_workspace: The name of the kernel workspace (e.g., 'lts-9.2')
         """
         logging.info(f"Running build step for kernel workspace: {kernel_workspace}")
 
@@ -291,7 +291,7 @@ class ContentRelease:
         Spins up VM, installs built RPMs, reboots, and runs kselftests.
 
         Args:
-            kernel_workspace: The name of the kernel workspace (e.g., 'lts-9.4')
+            kernel_workspace: The name of the kernel workspace (e.g., 'lts-9.2')
         """
         if not kernel_workspace:
             logging.error("kernel_workspace is required for the test command")
