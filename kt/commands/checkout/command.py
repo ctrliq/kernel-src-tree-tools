@@ -25,16 +25,16 @@ The local branch is {<user>}/<branch>.
 Examples:
 
 \b
-$ kt checkout lts-9.4
+$ kt checkout lts-9.2
 \b
-$ kt checkout lts-9.4 --cleanup
+$ kt checkout lts-9.2 --cleanup
 \b
-$ kt checkout lts-9.4 --cleanup -c
+$ kt checkout lts-9.2 --cleanup -c
 \b
-$ kt checkout lts-9.4 --cleanup --change-dir
+$ kt checkout lts-9.2 --cleanup --change-dir
 \b
-$ kt checkout lts-9.4 -e CVE-2022-49909
-Will create folder lts-9.4_CVE-2022-49909 instead of lts-9.4.
+$ kt checkout lts-9.2 -e CVE-2022-49909
+Will create folder lts-9.2_CVE-2022-49909 instead of lts-9.2.
 """
 
 

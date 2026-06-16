@@ -15,14 +15,12 @@ cbr-7.9
 fipslegacy-8.6
 lts-8.6
 lts-9.2
-lts-9.4
 lts-9.6
 
 \b
 $ kt list-kernels --automated
 lts-8.6
 lts-9.2
-lts-9.4
 lts-9.6
 
 """

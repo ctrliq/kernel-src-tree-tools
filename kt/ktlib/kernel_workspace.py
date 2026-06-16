@@ -154,7 +154,7 @@ class KernelWorkspace:
         Load a kernel workspace by name.
 
         Args:
-            kernel_workspace_name: The name of the kernel workspace (e.g., 'lts-9.4')
+            kernel_workspace_name: The name of the kernel workspace (e.g., 'lts-9.2')
 
         Returns:
             KernelWorkspace

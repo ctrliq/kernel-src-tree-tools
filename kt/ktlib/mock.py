@@ -101,7 +101,7 @@ class Mock:
         For depot-based kernels, creates a temporary config with credentials replaced.
 
         Args:
-            kernel_workspace: The name of the kernel workspace (e.g., 'lts-9.4')
+            kernel_workspace: The name of the kernel workspace (e.g., 'lts-9.2')
             kernel_workspace_obj: The kernel workspace object
             config: The configuration object
 
