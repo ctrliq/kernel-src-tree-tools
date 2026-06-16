@@ -57,6 +57,8 @@ class CherryPickCommand:
         if args.ciq_tag is not None:
             CIQ_setup_vulns_repo(vulns_repo=args.vulns_dir)
 
+        self._pick_fixes = args.pick_fixes
+
     # Helpers
     def _find_lts_kernel(self, jira_ticket):
         # TODO this won't be necessary when we move to kt
@@ -225,12 +227,13 @@ class CherryPickCommand:
             self._update_jira_failure(ticket_key=updated_commit_header.jira)
             raise e
 
-        # Cherry pick the fixed-by dependencies
-        try:
-            self._cherry_pick_fixes(original_commit_header=updated_commit_header)
-        except (CherryPickException, RuntimeError) as e:
-            # TODO would add some extra information to jira if the cve-bf deps are not applied
-            raise e
+        # Cherry pick the fixed-by dependencies (opt-in via --pick-fixes)
+        if self._pick_fixes:
+            try:
+                self._cherry_pick_fixes(original_commit_header=updated_commit_header)
+            except (CherryPickException, RuntimeError) as e:
+                # TODO would add some extra information to jira if the cve-bf deps are not applied
+                raise e
 
         # Update jira only if its deps are applied as well
         self._update_jira_success(ticket_key=updated_commit_header.jira)
@@ -369,6 +372,12 @@ if __name__ == "__main__":
         action="store_true",
         help="Continue even if the commit(s) referenced in Fixes: tags are not present in the current branch",
     )
+    parser.add_argument(
+        "--pick-fixes",
+        action="store_true",
+        help="Cherry pick Fixes: commits as well (cve-bf)",
+    )
+
     parser.add_argument(
         "--jira-url",
         required=False,
