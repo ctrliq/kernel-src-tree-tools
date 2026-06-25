@@ -43,3 +43,7 @@ include = ["kt*"]
 
 [project.scripts]
 kt = "kt.kt:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"

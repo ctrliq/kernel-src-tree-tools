@@ -12,6 +12,8 @@ kernels = {
         "src_tree_branch": "src-branch",
         "dist_git_root": "dist-git-tree-cbr",
         "dist_git_branch": "dist-branch",
+        "mock_config": "test-mock-config",
+        "automated": True,
     }
 }
 
