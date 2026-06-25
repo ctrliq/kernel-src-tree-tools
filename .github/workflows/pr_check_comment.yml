@@ -1,0 +1,83 @@
+name: PR Checks - Post Coverage
+
+on:
+  workflow_run:
+    workflows: ["PR Pre Checks"]
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Workflow run ID to fetch artifacts from"
+        required: true
+        type: string
+      pr_number:
+        description: "PR number to update"
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+jobs:
+  post-coverage:
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success')
+
+    steps:
+      - name: Download coverage artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: coverage-report
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event_name == 'workflow_dispatch' && inputs.run_id || github.event.workflow_run.id }}
+      
+      - name: Read and Validate PR number
+        id: pr_number
+        env:
+          PR_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          if [ -z "$PR_NUMBER" ] || ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "Error: Could not determine PR number: $PR_NUMBER"
+            exit 1
+          fi
+          echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+      - name: Validate coverage report
+        run: |
+          if [ ! -f coverage.md ]; then
+            echo "Error: coverage.md file not found."
+            exit 1
+          fi
+          FILE_SIZE=$(stat -c%s coverage.md)
+          if [ "$FILE_SIZE" -gt 65536 ]; then
+            echo "Error: coverage.md file size exceeds 64KB."
+            exit 1
+          fi
+
+      - name: Update PR body with coverage
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr_number.outputs.PR_NUMBER }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          # Fetch the current PR body
+          CURRENT_BODY=$(gh pr view "$PR_NUMBER" --repo "$REPOSITORY" --json body --jq '.body')
+
+          # Strip previous coverage section if it exists
+          CLEAN_BODY=$(printf '%s\n' "$CURRENT_BODY" | sed '/<!-- coverage-report -->/,$d')
+
+          # Build New PR body with coverage appended at the bottom
+          {
+            printf '%s\n' "$CLEAN_BODY"
+            echo "<!-- coverage-report -->"
+            echo "## Coverage Report"
+            echo ""
+            cat coverage.md
+          } > new_body.md
+
+          gh pr edit "$PR_NUMBER" --repo "$REPOSITORY" --body-file new_body.md
