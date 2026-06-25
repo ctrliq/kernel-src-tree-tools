@@ -20,8 +20,9 @@ dependencies = [
 dev = [
     "pre-commit",
     "ruff",
-	"pytest",
-	]
+    "pytest",
+    "pytest-cov",
+]
 
 [tool.ruff]
 line-length = 120
@@ -47,3 +48,12 @@ kt = "kt.kt:main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra -q"
+
+[tool.coverage.run]
+source = ["."]
+omit = ["tests/*"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true

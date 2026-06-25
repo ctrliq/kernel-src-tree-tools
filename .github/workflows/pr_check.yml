@@ -39,4 +39,34 @@ jobs:
 
       - name: Test
         run: |
-          pytest
+          pytest --cov --cov-report=term --cov-report=markdown:coverage.md
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-report
+          path: coverage.md
+          retention-days: 30
+
+      - name: Save PR Metadata
+        if: github.event_name == 'pull_request'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          mkdir -p pr_metadata
+          echo "$PR_NUMBER" > pr_metadata/pr_number.txt
+
+      - name: Checksum PR Metadata
+        if: github.event_name == 'pull_request'
+        run: |
+          cd pr_metadata && sha256sum *.txt > checksums.txt
+
+      - name: Upload PR metadata
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-metadata
+          path: pr_metadata/
+          retention-days: 30
+
