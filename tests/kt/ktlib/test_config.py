@@ -10,12 +10,15 @@ CONFIG_STR = (
     '"kernels_dir": "~/ciq/kernels",'
     '"images_source_dir": "~/ciq/default_test_images",'
     '"images_dir": "~/ciq/tmp/virt-images",'
-    '"ssh_key": "~/ciq/id_ed25519_generic.pub"'
+    '"ssh_key": "~/ciq/id_ed25519_generic.pub",'
+    '"user": "testuser"'
     "}"
 )
 
 
-def test_config_load_default_fallback():
+def test_config_load_default_fallback(monkeypatch):
+    # Remove the environment variable if it exists when running local tests
+    monkeypatch.delenv("KTOOLS_CONFIG_FILE", raising=False)
     config = Config.load()
     assert config.base_path == DEFAULT_CONFIG["base_path"]
 
@@ -47,7 +50,7 @@ def test_config_load_from_json_data_None():
 def test_config_load_from_json_data_empty():
     json_data = "{}"
 
-    with pytest.raises(TypeError, match="missing 5 required positional arguments:"):
+    with pytest.raises(TypeError, match="missing 6 required positional arguments:"):
         config = Config.from_json(json_data)  # noqa F841
 
 
@@ -74,3 +77,8 @@ def test_config_load_from_json_proper_images_dir():
 def test_config_load_from_json_proper_ssh_key():
     config = Config.from_json(CONFIG_STR)
     assert config.ssh_key == Path("~/ciq/id_ed25519_generic.pub").expanduser()
+
+
+def test_config_load_from_json_proper_user():
+    config = Config.from_json(CONFIG_STR)
+    assert config.user == "testuser"
