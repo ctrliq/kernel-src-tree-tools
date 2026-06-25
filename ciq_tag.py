@@ -401,7 +401,7 @@ class CiqMsg:
         # the last existing property, if any exists, or at the begginging of the message body otherwise.
         first_greater = mit.first_true(
             range(len(self._tags)),
-            pred=lambda i: (inserted_tag.get_order_num() < self._tags[i]._tag_type.get_order_num()),
+            pred=lambda i: inserted_tag.get_order_num() < self._tags[i]._tag_type.get_order_num(),
             default=len(self._tags),
         )
         self._tags.insert(
