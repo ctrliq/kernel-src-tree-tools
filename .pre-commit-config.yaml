@@ -1,10 +1,15 @@
 repos:
 - repo: https://github.com/astral-sh/ruff-pre-commit
   # Ruff version.
-  rev: v0.14.0
+  rev: 745be0411e3c150e246d527e531e5a221b8c3462 # v0.15.19
   hooks:
     # Run the linter.
     - id: ruff-check
       args: [ --fix ]
     # Run the formatter.
     - id: ruff-format
+- repo: https://github.com/shellcheck-py/shellcheck-py
+  rev: 745eface02aef23e168a8afb6b5737818efbea95 # v0.11.0.1
+  hooks:
+    - id: shellcheck
+      args: [ "-S", "error" ]
