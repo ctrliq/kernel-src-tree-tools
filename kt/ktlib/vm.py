@@ -12,6 +12,7 @@ from pathlib3x import Path
 
 from kt.ktlib.config import Config
 from kt.ktlib.kernel_workspace import KernelWorkspace
+from kt.ktlib.kernels import KernelType
 from kt.ktlib.local import LocalCommand
 from kt.ktlib.ssh import SshCommand
 from kt.ktlib.util import Constants
@@ -140,7 +141,12 @@ class Vm:
         return vm_instance
 
     def _get_vm_url(self):
-        return f"{Constants.BASE_URL}/{self.vm_major_minor_version}/images/x86_64/{Constants.DEFAULT_VM_BASE}-{self.vm_major_version}-{Constants.QCOW2_TRAIL}"
+        if KernelType.RLC in self.name:
+            base_url = Constants.BASE_URL_RLC
+        else:
+            base_url = Constants.BASE_URL
+
+        return f"{base_url}/{self.vm_major_minor_version}/images/x86_64/{Constants.DEFAULT_VM_BASE}-{self.vm_major_version}-{Constants.QCOW2_TRAIL}"
 
     def _download_source_image(self, override_base: bool = False):
         if self.qcow2_source_path.exists() and not override_base:

@@ -1,5 +1,6 @@
 import logging
 from dataclasses import dataclass
+from enum import StrEnum, auto
 
 import yaml
 from pathlib3x import Path
@@ -10,6 +11,11 @@ from kt.ktlib.util import Constants
 
 # TODO move this to a separate repo
 KERNEL_INFO_YAML_PATH = Path(__file__).parent.parent.joinpath("data/kernels.yaml")
+
+
+class KernelType(StrEnum):
+    LTS = auto()
+    RLC = auto()
 
 
 @dataclass
@@ -28,6 +34,7 @@ class KernelInfo:
     """
 
     name: str
+    kernel_type: KernelType
 
     src_tree_root: RepoInfo
     src_tree_branch: str
