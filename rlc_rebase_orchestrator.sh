@@ -819,7 +819,7 @@ if [ "$DRY_RUN" = false ] && [ -n "$NEW_ROLLING_BRANCH" ]; then
 
     # Get build timing from latest kbuild log (filtered to [TIMER] lines)
     # shellcheck disable=SC2012  # ls is safe here - we control the log naming convention
-    LATEST_KBUILD=$(ls -t "${PARENT_DIR}"/kbuild*.log 2>/dev/null | head -n1)
+    LATEST_KBUILD=$(ls -t "${PARENT_DIR}"/kbuild*.log 2>/dev/null | head -n1 || true)
     BUILD_TIMING=""
     if [ -n "${LATEST_KBUILD}" ] && [ -f "${LATEST_KBUILD}" ]; then
         BUILD_TIMING=$(grep -E -B 5 -A 5 "\[TIMER\]|^Starting Build" "${LATEST_KBUILD}" 2>/dev/null || echo "")
