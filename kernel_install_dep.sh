@@ -10,6 +10,7 @@ install_kselftest_deps_8() {
     echo
     sudo dnf -y groupinstall 'Development Tools'
     sudo dnf -y install epel-release
+    sudo dnf config-manager --set-enabled powertools
     sudo dnf -y install --enablerepo=devel \
     VirtualGL \
     alsa-lib-devel \
@@ -43,9 +44,11 @@ install_kselftest_deps_8() {
     nftables \
     nmap-ncat \
     numactl-devel \
+    openssl \
     openssl-devel \
     perf \
     popt-devel \
+    python3 \
     python3-pip \
     rsync \
     socat \
