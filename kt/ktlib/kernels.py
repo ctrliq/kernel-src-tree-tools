@@ -40,6 +40,7 @@ class KernelInfo:
     automated: bool
 
     vm_image_url: str | None = None
+    depot_channels: list[str] | None = None
 
 
 @dataclass

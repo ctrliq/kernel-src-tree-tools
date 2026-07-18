@@ -47,9 +47,16 @@ class Vm:
     name: str
     kernel_workspace: KernelWorkspace
     vm_image_url: str | None = None
+    depot_channels: list[str] | None = None
 
     @classmethod
-    def load(cls, config: Config, kernel_workspace: KernelWorkspace, vm_image_url: str | None = None):
+    def load(
+        cls,
+        config: Config,
+        kernel_workspace: KernelWorkspace,
+        vm_image_url: str | None = None,
+        depot_channels: list[str] | None = None,
+    ):
         kernel_workspace_str = kernel_workspace.folder.name
         kernel_name = cls._extract_kernel_name(kernel_workspace_str)
         vm_major_version = cls._extract_major(kernel_name)
@@ -77,6 +84,7 @@ class Vm:
             name=kernel_workspace_str,
             kernel_workspace=kernel_workspace,
             vm_image_url=vm_image_url,
+            depot_channels=depot_channels,
         )
 
     @classmethod
@@ -114,13 +122,17 @@ class Vm:
         kernel_workspace = KernelWorkspace.load_from_filepath(folder=kernel_workpath)
 
         vm_image_url = None
+        depot_channels = None
         kernel_name = cls._extract_kernel_name(kernel_workspace_name)
         kernels_info = KernelsInfo.from_yaml(config=config)
         kernel_info = kernels_info.kernels.get(kernel_name)
         if kernel_info:
             vm_image_url = kernel_info.vm_image_url
+            depot_channels = kernel_info.depot_channels
 
-        return cls.load(config=config, kernel_workspace=kernel_workspace, vm_image_url=vm_image_url)
+        return cls.load(
+            config=config, kernel_workspace=kernel_workspace, vm_image_url=vm_image_url, depot_channels=depot_channels
+        )
 
     @classmethod
     def setup_and_spinup(
@@ -202,6 +214,25 @@ class Vm:
         # change it to {config.user}
         data["runcmd"][0][1] = f"{config.user}:{config.user}"
         data["runcmd"][0][2] = os.environ["HOME"]
+
+        # Pin dnf to vault for kernels with a pinned VM image (Rocky only, not CentOS/cbr)
+        if self.vm_image_url:
+            data["runcmd"].append(f'echo "{self.vm_major_minor_version}" > /etc/dnf/vars/releasever')
+            data["runcmd"].append('echo "vault/rocky" > /etc/dnf/vars/contentdir')
+            data["runcmd"].append(
+                "cd /etc/yum.repos.d/ && for f in *.repo; do "
+                'sed -i -e "s/^mirrorlist=/#mirrorlist=/" -e "s/#baseurl=/baseurl=/" "$f"; done'
+            )
+            data["runcmd"].append("dnf clean all")
+
+        # Depot: always install the client, but only login+enable if credentials are present
+        data["runcmd"].append("dnf install -y https://depot.ciq.com/public/files/depot-client/depot/depot.x86_64.rpm")
+        depot_user = os.environ.get("DEPOT_USER")
+        depot_token = os.environ.get("DEPOT_TOKEN")
+        if depot_user and depot_token and self.depot_channels:
+            data["runcmd"].append(f"depot login -u {depot_user} -t {depot_token}")
+            for channel in self.depot_channels:
+                data["runcmd"].append(f"depot enable {channel} -y")
 
         # Install packages needed later
         data["runcmd"].append([str(config.base_path / Path("kernel-src-tree-tools") / Path("kernel_install_dep.sh"))])
