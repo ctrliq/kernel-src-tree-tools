@@ -10,8 +10,11 @@ import wget
 from git import Repo
 from pathlib3x import Path
 
+from urllib.parse import urlparse
+
 from kt.ktlib.config import Config
 from kt.ktlib.kernel_workspace import KernelWorkspace
+from kt.ktlib.kernels import KernelsInfo
 from kt.ktlib.local import LocalCommand
 from kt.ktlib.ssh import SshCommand
 from kt.ktlib.util import Constants
@@ -43,18 +46,22 @@ class Vm:
     cloud_init_path: Path
     name: str
     kernel_workspace: KernelWorkspace
+    vm_image_url: str | None = None
 
     @classmethod
-    def load(cls, config: Config, kernel_workspace: KernelWorkspace):
+    def load(cls, config: Config, kernel_workspace: KernelWorkspace, vm_image_url: str | None = None):
         kernel_workspace_str = kernel_workspace.folder.name
         kernel_name = cls._extract_kernel_name(kernel_workspace_str)
         vm_major_version = cls._extract_major(kernel_name)
         vm_major_minor_version = cls._extract_major_minor(kernel_name)
 
-        # Image source paths construction
-        qcow2_source_path = config.images_source_dir / Path(
-            cls._qcow2_name(vm_major_minor_version=vm_major_minor_version)
-        )
+        # Image source paths construction — use pinned URL basename if set, else default
+        if vm_image_url:
+            source_image_name = Path(urlparse(vm_image_url).path).name
+        else:
+            source_image_name = cls._qcow2_name(vm_major_minor_version=vm_major_minor_version)
+
+        qcow2_source_path = config.images_source_dir / Path(source_image_name)
 
         # Actual current image paths construction
         work_dir = config.images_dir / Path(kernel_workspace_str)
@@ -69,6 +76,7 @@ class Vm:
             cloud_init_path=cloud_init_path,
             name=kernel_workspace_str,
             kernel_workspace=kernel_workspace,
+            vm_image_url=vm_image_url,
         )
 
     @classmethod
@@ -104,7 +112,15 @@ class Vm:
         config = Config.load()
         kernel_workpath = config.kernels_dir / kernel_workspace_name
         kernel_workspace = KernelWorkspace.load_from_filepath(folder=kernel_workpath)
-        return cls.load(config=config, kernel_workspace=kernel_workspace)
+
+        vm_image_url = None
+        kernel_name = cls._extract_kernel_name(kernel_workspace_name)
+        kernels_info = KernelsInfo.from_yaml(config=config)
+        kernel_info = kernels_info.kernels.get(kernel_name)
+        if kernel_info:
+            vm_image_url = kernel_info.vm_image_url
+
+        return cls.load(config=config, kernel_workspace=kernel_workspace, vm_image_url=vm_image_url)
 
     @classmethod
     def setup_and_spinup(
@@ -140,6 +156,8 @@ class Vm:
         return vm_instance
 
     def _get_vm_url(self):
+        if self.vm_image_url:
+            return self.vm_image_url
         return f"{Constants.BASE_URL}/{self.vm_major_minor_version}/images/x86_64/{Constants.DEFAULT_VM_BASE}-{self.vm_major_version}-{Constants.QCOW2_TRAIL}"
 
     def _download_source_image(self, override_base: bool = False):

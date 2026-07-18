@@ -100,3 +100,29 @@ def test_kernels_from_dict_check_src_root():
     kernels_info = KernelsInfo.from_dict(data=data, private_data={}, config=config)
     kernel_info = list(kernels_info.kernels.values())[0]
     assert kernel_info.src_tree_root.folder == config.base_path / Path("kernel-src-tree")
+
+
+def test_kernels_vm_image_url_default_none():
+    config = Config.from_str_dict(Config.DEFAULT)
+
+    kernels_info = KernelsInfo.from_dict(data=data, private_data={}, config=config)
+    kernel_info = list(kernels_info.kernels.values())[0]
+    assert kernel_info.vm_image_url is None
+
+
+def test_kernels_vm_image_url_present():
+    pinned_url = (
+        "https://dl.rockylinux.org/vault/rocky/9.2/images/x86_64/Rocky-9-GenericCloud-Base-9.2-20230513.0.x86_64.qcow2"
+    )
+    kernels_with_pin = {
+        "kernel1": {
+            **kernels["kernel1"],
+            "vm_image_url": pinned_url,
+        }
+    }
+    data_with_pin = {"common_repos": common_repos, "kernels": kernels_with_pin}
+    config = Config.from_str_dict(Config.DEFAULT)
+
+    kernels_info = KernelsInfo.from_dict(data=data_with_pin, private_data={}, config=config)
+    kernel_info = list(kernels_info.kernels.values())[0]
+    assert kernel_info.vm_image_url == pinned_url

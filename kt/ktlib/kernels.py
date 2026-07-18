@@ -39,6 +39,8 @@ class KernelInfo:
 
     automated: bool
 
+    vm_image_url: str | None = None
+
 
 @dataclass
 class KernelsInfo:
