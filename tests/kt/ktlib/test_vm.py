@@ -2,7 +2,7 @@ import os
 from io import StringIO
 from unittest.mock import MagicMock, patch
 
-import oyaml as yaml
+from ruamel.yaml import YAML
 from pathlib3x import Path
 
 from kt.ktlib.util import Constants
@@ -144,7 +144,7 @@ def _build_vm_and_get_runcmd(vm_image_url=None, depot_channels=None, depot_env=N
     content = captured_yaml.get("content", "")
     if content.startswith("#cloud-config\n"):
         content = content[len("#cloud-config\n") :]
-    data = yaml.safe_load(content)
+    data = YAML(typ="safe").load(content)
     return data["runcmd"]
 
 
