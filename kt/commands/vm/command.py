@@ -71,8 +71,9 @@ $ kt vm lts-9.2 -c --override-base
 @click.option("--test", is_flag=True, help="Build the kernel and run kselftests")
 @click.option("--vcpus", type=int, default=12, help="Number of virtual CPUs (default: 12)")
 @click.option("--memory", type=int, default=32768, help="Memory in MiB (default: 32768)")
+@click.option("--no-depot", is_flag=True, help="Skip depot client installation and channel setup")
 @click.argument("kernel_workspace", required=False, shell_complete=ShellCompletion.show_kernel_workspaces)
-def vm(kernel_workspace, console, destroy, override, override_base, list_all, test, vcpus, memory):
+def vm(kernel_workspace, console, destroy, override, override_base, list_all, test, vcpus, memory, no_depot):
     if not list_all and not kernel_workspace:
         raise click.UsageError("kernel_workspace is required unless --list-all is specified")
 
@@ -86,4 +87,5 @@ def vm(kernel_workspace, console, destroy, override, override_base, list_all, te
         test=test,
         vcpus=vcpus,
         memory=memory,
+        no_depot=no_depot,
     )
