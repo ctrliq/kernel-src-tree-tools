@@ -16,6 +16,7 @@ def main(
     test: bool = False,
     vcpus: int = 12,
     memory: int = 32768,
+    no_depot: bool = False,
 ):
     if list_all:
         VmCommand.list_all()
@@ -31,7 +32,12 @@ def main(
         return
 
     vm_instance = Vm.setup_and_spinup(
-        kernel_workspace_name=name, override=override, override_base=override_base, vcpus=vcpus, memory=memory
+        kernel_workspace_name=name,
+        override=override,
+        override_base=override_base,
+        vcpus=vcpus,
+        memory=memory,
+        no_depot=no_depot,
     )
     config = Config.load()
 

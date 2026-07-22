@@ -142,6 +142,7 @@ class Vm:
         override_base: bool = False,
         vcpus: int = 12,
         memory: int = 32768,
+        no_depot: bool = False,
     ):
         """
         Setup and spin up a VM from a kernel workspace name.
@@ -152,6 +153,7 @@ class Vm:
             override_base: If True, destroy and recreate the VM but override the base image as well
             vcpus: Number of virtual CPUs
             memory: Memory in MiB
+            no_depot: If True, skip depot client installation and channel setup
 
         Returns:
             VmInstance: The running VM instance
@@ -163,7 +165,7 @@ class Vm:
             vm.destroy()
 
         vm.setup(override_base=override_base)
-        vm_instance = vm.spin_up(config=config, vcpus=vcpus, memory=memory)
+        vm_instance = vm.spin_up(config=config, vcpus=vcpus, memory=memory, no_depot=no_depot)
 
         return vm_instance
 
@@ -186,7 +188,7 @@ class Vm:
         logging.info(f"Downloading image from {self._get_vm_url()}")
         wget.download(self._get_vm_url(), out=str(self.qcow2_source_path))
 
-    def _setup_cloud_init(self, config: Config):
+    def _setup_cloud_init(self, config: Config, no_depot: bool = False):
         yaml = YAML()
         yaml.preserve_quotes = True
         yaml.width = 4096
@@ -231,14 +233,17 @@ class Vm:
             )
             data["runcmd"].append("dnf clean all")
 
-        # Depot: always install the client, but only login+enable if credentials are present
-        data["runcmd"].append("dnf install -y https://depot.ciq.com/public/files/depot-client/depot/depot.x86_64.rpm")
-        depot_user = os.environ.get("DEPOT_USER")
-        depot_token = os.environ.get("DEPOT_TOKEN")
-        if depot_user and depot_token and self.depot_channels:
-            data["runcmd"].append(f"depot login -u {depot_user} -t {depot_token}")
-            for channel in self.depot_channels:
-                data["runcmd"].append(f"depot enable {channel} -y")
+        # Depot: install the client and login+enable if credentials are present
+        if not no_depot:
+            data["runcmd"].append(
+                "dnf install -y https://depot.ciq.com/public/files/depot-client/depot/depot.x86_64.rpm"
+            )
+            depot_user = os.environ.get("DEPOT_USER")
+            depot_token = os.environ.get("DEPOT_TOKEN")
+            if depot_user and depot_token and self.depot_channels:
+                data["runcmd"].append(f"depot login -u {depot_user} -t {depot_token}")
+                for channel in self.depot_channels:
+                    data["runcmd"].append(f"depot enable {channel} -y")
 
         # Install packages needed later
         data["runcmd"].append([str(config.base_path / Path("kernel-src-tree-tools") / Path("kernel_install_dep.sh"))])
@@ -246,11 +251,11 @@ class Vm:
         with open(self.cloud_init_path, "w") as f:
             yaml.dump(data, f)
 
-    def _create_image(self, config: Config, vcpus: int = 12, memory: int = 32768):
+    def _create_image(self, config: Config, vcpus: int = 12, memory: int = 32768, no_depot: bool = False):
         # Make sure the dir exists
         self.qcow2_path.parent.mkdir(parents=True, exist_ok=True)
 
-        self._setup_cloud_init(config=config)
+        self._setup_cloud_init(config=config, no_depot=no_depot)
         # Copy qcow2 image to work dir
         self.qcow2_source_path.copy(self.qcow2_path)
 
@@ -282,11 +287,11 @@ class Vm:
     def setup(self, override_base: bool = False):
         self._download_source_image(override_base=override_base)
 
-    def spin_up(self, config: Config, vcpus: int = 12, memory: int = 32768) -> VmInstance:
+    def spin_up(self, config: Config, vcpus: int = 12, memory: int = 32768, no_depot: bool = False) -> VmInstance:
         if not VirtHelper.exists(vm_name=self.name):
             logging.info(f"VM {self.name} does not exist, creating from scratch...")
 
-            self._create_image(config=config, vcpus=vcpus, memory=memory)
+            self._create_image(config=config, vcpus=vcpus, memory=memory, no_depot=no_depot)
             return VmInstance(name=self.name, kernel_workspace=self.kernel_workspace)
 
         logging.info(f"Vm {self.name} already exists")

@@ -90,7 +90,7 @@ def _make_config():
     return config
 
 
-def _build_vm_and_get_runcmd(vm_image_url=None, depot_channels=None, depot_env=None):
+def _build_vm_and_get_runcmd(vm_image_url=None, depot_channels=None, depot_env=None, no_depot=False):
     """Build a Vm, call _setup_cloud_init, and capture the generated runcmd."""
     config = _make_config()
 
@@ -139,7 +139,7 @@ def _build_vm_and_get_runcmd(vm_image_url=None, depot_channels=None, depot_env=N
         return _real_open(path, mode)
 
     with patch("builtins.open", side_effect=fake_open), patch.dict(os.environ, env):
-        vm._setup_cloud_init(config=config)
+        vm._setup_cloud_init(config=config, no_depot=no_depot)
 
     content = captured_yaml.get("content", "")
     if content.startswith("#cloud-config\n"):
@@ -166,7 +166,7 @@ def test_cloud_init_no_vault_pin_when_no_image_url():
     assert not any("vault/rocky" in s for s in runcmd_strs)
 
 
-def test_cloud_init_depot_install_always_present():
+def test_cloud_init_depot_install_present_by_default():
     runcmd = _build_vm_and_get_runcmd(vm_image_url=None)
     runcmd_strs = [str(c) for c in runcmd]
     assert any("depot.x86_64.rpm" in s for s in runcmd_strs)
@@ -205,3 +205,23 @@ def test_cloud_init_ordering():
     dep_script_idx = next(i for i, s in enumerate(runcmd_strs) if "kernel_install_dep.sh" in s)
 
     assert vault_idx < depot_install_idx < depot_login_idx < dep_script_idx
+
+
+def test_cloud_init_no_depot_skips_all_depot_commands():
+    """no_depot=True skips depot even when creds and channels are present."""
+    runcmd = _build_vm_and_get_runcmd(
+        depot_channels=["lts-8.6"],
+        depot_env=("myuser", "mytoken"),
+        no_depot=True,
+    )
+    runcmd_strs = [str(c) for c in runcmd]
+    assert not any("depot" in s for s in runcmd_strs)
+    assert any("kernel_install_dep.sh" in s for s in runcmd_strs)
+
+
+def test_cloud_init_no_depot_skips_depot_install():
+    """no_depot=True omits the depot RPM install (no creds variant)."""
+    runcmd = _build_vm_and_get_runcmd(no_depot=True)
+    runcmd_strs = [str(c) for c in runcmd]
+    assert not any("depot.x86_64.rpm" in s for s in runcmd_strs)
+    assert any("kernel_install_dep.sh" in s for s in runcmd_strs)
