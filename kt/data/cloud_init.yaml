@@ -33,3 +33,9 @@ write_files:
 # workaround to change the owner to user
 runcmd:
   - [chown, USER_PLACEHOLDER:USER_PLACEHOLDER, HOMEDIR_PLACEHOLDER]
+
+power_state:
+  mode: reboot
+  message: "Rebooting after install"
+  timeout: 30
+  condition: true

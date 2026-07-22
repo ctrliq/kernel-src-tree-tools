@@ -10,6 +10,8 @@ install_kselftest_deps_8() {
     echo
     sudo dnf -y groupinstall 'Development Tools'
     sudo dnf -y install epel-release
+    # EPEL repos use $releasever which breaks when vault-pinned to a minor version (e.g. 8.6)
+    sudo sed -i 's/\$releasever/8/g' /etc/yum.repos.d/epel*.repo
     sudo dnf config-manager --set-enabled powertools
     sudo dnf -y install --enablerepo=devel \
     VirtualGL \
@@ -74,6 +76,9 @@ install_kselftest_deps_8() {
     pyyaml \
     scapy \
     tftpy
+
+    sudo dnf -y update
+    sudo systemctl restart sshd
 }
 
 install_kselftest_deps_9() {
@@ -82,8 +87,9 @@ install_kselftest_deps_9() {
     echo
     sudo dnf -y groupinstall 'Development Tools'
     sudo dnf -y install epel-release
+    # EPEL repos use $releasever which breaks when vault-pinned to a minor version (e.g. 9.2)
+    sudo sed -i 's/\$releasever/9/g' /etc/yum.repos.d/epel*.repo
     sudo dnf -y install --enablerepo=crb,devel \
-    VirtualGL \
     alsa-lib-devel \
     bc \
     clang \
@@ -95,7 +101,6 @@ install_kselftest_deps_9() {
     ethtool \
     fuse \
     fuse-devel \
-    gcc-toolset-13-libasan-devel \
     glibc \
     glibc-static \
     iperf3 \
@@ -129,8 +134,14 @@ install_kselftest_deps_9() {
     tcpdump \
     teamd \
     traceroute \
-    virtme-ng \
     wget
+
+    # Not available on all 9.x minor releases
+    sudo dnf -y install --enablerepo=crb,devel \
+    VirtualGL \
+    gcc-toolset-13-libasan-devel \
+    virtme-ng \
+    || echo "Optional packages not available or install failed; continuing."
 
     pip3 install --user \
     jsonschema \
@@ -143,6 +154,9 @@ install_kselftest_deps_9() {
     scapy \
     tftpy \
     wheel
+
+    sudo dnf -y update
+    sudo systemctl restart sshd
 }
 
 install_kselftest_deps_10() {
@@ -211,6 +225,9 @@ install_kselftest_deps_10() {
     scapy \
     tftpy \
     wheel
+
+    sudo dnf -y update
+    sudo systemctl restart sshd
 }
 
 case "${VERSION_ID%%.*}" in
