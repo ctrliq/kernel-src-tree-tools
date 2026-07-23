@@ -15,8 +15,14 @@ ssh_pwauth: true
 package_upgrade: False
 
 mounts:
-  - ["mount_tag_mock_scratch", "SHARED_DIR_PLACEHOLDER", "virtiofs", "rw,relatime,context=unconfined_u:object_r:mock_var_lib_t:s0"]
-  - ["SHARED_DIR_PLACEHOLDER", "/var/lib/mock", "bind", "defaults,bind"]
+  - - mount_tag_mock_scratch
+    - SHARED_DIR_PLACEHOLDER
+    - virtiofs
+    - rw,relatime,context=unconfined_u:object_r:mock_var_lib_t:s0
+  - - SHARED_DIR_PLACEHOLDER
+    - /var/lib/mock
+    - bind
+    - defaults,bind
 
 # Change working directory after boot
 # Setting up homedir does not work without tricks, because
@@ -32,7 +38,9 @@ write_files:
 # and then root is the owner
 # workaround to change the owner to user
 runcmd:
-  - [chown, USER_PLACEHOLDER:USER_PLACEHOLDER, HOMEDIR_PLACEHOLDER]
+  - - chown
+    - USER_PLACEHOLDER:USER_PLACEHOLDER
+    - HOMEDIR_PLACEHOLDER
 
 power_state:
   mode: reboot
