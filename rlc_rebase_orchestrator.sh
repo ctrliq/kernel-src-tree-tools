@@ -422,13 +422,13 @@ log_info "Updating kernel-src-tree-tools..."
 pushd "$TOOLS_REPO" > /dev/null
 git fetch origin
 if [ "$DRY_RUN" = false ]; then
-    git pull --rebase origin "$(git rev-parse --abrev-ref HEAD)" 2>/dev/null || log_warn "Could not pull latest changes for kernel-src-tree-tools (not critical)"
+    git pull --rebase origin "$(git rev-parse --abbrev-ref HEAD)" 2>/dev/null || log_warn "Could not pull latest changes for kernel-src-tree-tools (not critical)"
 fi
 popd > /dev/null
 
 log_info "Updating kernel-src-tree-rolling..."
 pushd "$ROLLING_REPO" > /dev/null
-git fetch origin --tags
+git fetch origin --tags --force
 popd > /dev/null
 
 # Auto-detect rolling product if not specified
