@@ -11,14 +11,15 @@ By keeping this under the same repo, it will be easier to refactor things.
 
 ## Setup:
 
-1. Install dependencies globally (you can also create a venv) :
+1. Install dependencies globally (you can also create a venv) in the repository
+root directory:
 ```
-$ python -m pip install -e ".[dev]"
+[kernel-src-tree-tools]$ python -m pip install -e ".[dev]"
 ```
 2. The command above will install pre-commit. To setup the pre-commit tool
 before you commit something, run this:
 ```
-$ pre-commit install
+[kernel-src-tree-tools]$ pre-commit install
 ```
 
 ## Implementation details:
