@@ -22,6 +22,46 @@ before you commit something, run this:
 [kernel-src-tree-tools]$ pre-commit install
 ```
 
+3. Set up the configuration file for kt.
+There is a default one in kt/data/config.json but you can create your own by
+defining the KTOOLS_CONFIG_FILE enviroment varriable to point to your own config
+file.
+```bash
+$ echo $KTOOLS_CONFIG_FILE
+/home/jmaple/.config/kt/test_config.json
+
+(.venv) [jmaple@devbox kernel-src-tree-tools]$ cat $KTOOLS_CONFIG_FILE
+{
+  "base_path": "~/workspace/kt_test",
+  "kernels_dir": "~/workspace/kt_test/kernels",
+  "images_source_dir": "~/workspace/kt_test/images_source",
+  "images_dir": "~/workspace/kt_test/images",
+  "ssh_key": "~/.ssh/test.pub",
+  "user": "USER"
+}
+```
+user defaults to $USER, set this if you wish for your user on the vms to be
+different then define.
+
+4. Private Repos
+By default, kt will use the public repos defined in kt/data/kernels.yaml. If
+you have access to our private repos, you can create a .private_repos.yaml in
+the base_path directory and define the private repos and branches should they
+differ from the public ones. For example:
+```yaml
+private_repos:
+    dist-git-tree-lts: <gitlab_private_repo_url>
+
+kernel_override:
+    lts-9.2:
+        dist_git_branch: <private_branch>
+        dist_git_root: dist-git-tree-lts
+```
+
+5. Setup needs to be run first.
+```bash
+$ kt setup
+```
 ## Implementation details:
 
 kt/ktlib is the place for common helpers that would be used for kt commands.

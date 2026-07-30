@@ -8,4 +8,5 @@ def main(automated: bool = False):
 
     for k in sorted(kernels.values(), key=lambda k: k.name):
         if not automated or k.automated:
-            print(k.name)
+            label = f"{k.name} (override)" if k.overridden else f"{k.name} (default)"
+            print(label)

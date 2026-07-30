@@ -41,6 +41,7 @@ class KernelInfo:
 
     vm_image_url: str | None = None
     depot_channels: list[str] | None = None
+    overridden: bool = False
 
 
 @dataclass
@@ -49,17 +50,17 @@ class KernelsInfo:
     repos: dict[str, RepoInfo]
 
     @classmethod
-    def _load_private_repos(cls, config: Config) -> dict[str, str]:
-        """Load private repository URLs from local config"""
+    def _load_private_config(cls, config: Config) -> tuple[dict[str, str], dict[str, dict]]:
+        """Load private repository URLs and kernel overrides from local config"""
         private_repos_path = config.base_path / Constants.PRIVATE_REPOS_CONFIG_FILE
 
         if not private_repos_path.exists():
             logging.info(f"{private_repos_path} does not exist")
-            return {}
+            return {}, {}
 
         with open(private_repos_path) as f:
             data = yaml.safe_load(f)
-            return data.get("private_repos", {})
+            return data.get("private_repos", {}), data.get("kernel_overrides", {})
 
     @classmethod
     def _get_repos(cls, data: dict, private_data: dict, config: Config):
@@ -83,8 +84,9 @@ class KernelsInfo:
         return repos
 
     @classmethod
-    def _get_kernels_info(cls, data: dict, repos: dict[str, RepoInfo]):
+    def _get_kernels_info(cls, data: dict, repos: dict[str, RepoInfo], kernel_overrides: dict[str, dict] = None):
         kernels_info = {}
+        kernel_overrides = kernel_overrides or {}
 
         try:
             items = data[Constants.KERNELS].items()
@@ -93,6 +95,10 @@ class KernelsInfo:
 
         for kernel, info in items:
             k_info_dict = {"name": kernel, **info}
+
+            if kernel in kernel_overrides:
+                k_info_dict.update(kernel_overrides[kernel])
+                k_info_dict["overridden"] = True
 
             # Make the src_tree_root and dist_git_root absolute paths to the
             # local clone of these repos (transformation from src to Path)
@@ -129,13 +135,13 @@ class KernelsInfo:
         with open(KERNEL_INFO_YAML_PATH) as f:
             data = yaml.safe_load(f)
 
-        private_data = cls._load_private_repos(config=config)
+        private_data, kernel_overrides = cls._load_private_config(config=config)
 
-        return cls.from_dict(data=data, private_data=private_data, config=config)
+        return cls.from_dict(data=data, private_data=private_data, config=config, kernel_overrides=kernel_overrides)
 
     @classmethod
-    def from_dict(cls, data: dict, private_data: dict, config: Config):
+    def from_dict(cls, data: dict, private_data: dict, config: Config, kernel_overrides: dict[str, dict] = None):
         repos = cls._get_repos(data=data, private_data=private_data, config=config)
-        kernels_info = cls._get_kernels_info(data=data, repos=repos)
+        kernels_info = cls._get_kernels_info(data=data, repos=repos, kernel_overrides=kernel_overrides)
 
         return cls(kernels=kernels_info, repos=repos)

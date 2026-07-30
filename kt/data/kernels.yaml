@@ -1,5 +1,6 @@
 common_repos:
   dist-git-tree-fips: git@gitlab.com:ctrl-iq-public/fips/src/kernel.git
+  dist-git-tree: git@github.com:ciq-rocky-lts/kernel.git
   kernel-src-tree: https://github.com/ctrliq/kernel-src-tree.git
   kernel-src-tree-tools: https://github.com/ctrliq/kernel-src-tree-tools.git
 
@@ -7,16 +8,17 @@ kernels:
   cbr-7.9:
     src_tree_root: kernel-src-tree
     src_tree_branch: ciqcbr7_9
-    dist_git_root: dist-git-tree-cbr
-    dist_git_branch: cbr79-7
+    dist_git_root: dist-git-tree
+    dist_git_branch: el-7.9
     mock_config: centos-cbr79
     automated: true
+    vm_image_url: https://cloud.centos.org/centos/7/images/CentOS-7-x86_64-GenericCloud-2211.qcow2
 
   lts-8.6:
     src_tree_root: kernel-src-tree
     src_tree_branch: ciqlts8_6
-    dist_git_root: dist-git-tree-lts
-    dist_git_branch: lts86-8
+    dist_git_root: dist-git-tree
+    dist_git_branch: el-8.6
     mock_config: rocky-lts86
     automated: true
     vm_image_url: https://dl.rockylinux.org/vault/rocky/8.6/images/Rocky-8-GenericCloud-8.6.20220702.0.x86_64.qcow2
@@ -26,8 +28,8 @@ kernels:
   lts-9.2:
     src_tree_root: kernel-src-tree
     src_tree_branch: ciqlts9_2
-    dist_git_root: dist-git-tree-lts
-    dist_git_branch: lts92-9
+    dist_git_root: dist-git-tree
+    dist_git_branch: el-9.2
     mock_config: rocky-lts92
     automated: true
     vm_image_url: https://dl.rockylinux.org/vault/rocky/9.2/images/x86_64/Rocky-9-GenericCloud-Base-9.2-20230513.0.x86_64.qcow2
@@ -37,8 +39,8 @@ kernels:
   lts-9.6:
     src_tree_root: kernel-src-tree
     src_tree_branch: ciqlts9_6
-    dist_git_root: dist-git-tree-lts
-    dist_git_branch: lts96-9
+    dist_git_root: dist-git-tree
+    dist_git_branch: el-9.6
     mock_config: rocky-lts96
     automated: true
     vm_image_url: https://dl.rockylinux.org/vault/rocky/9.6/images/x86_64/Rocky-9-GenericCloud-Base-9.6-20250531.0.x86_64.qcow2
