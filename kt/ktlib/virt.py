@@ -38,18 +38,19 @@ class VmCommand(CommandRunner):
         cls,
         name: str,
         qcow2_path: Path,
-        vm_major_version: str,
+        os_variant: str,
         cloud_init_path: Path,
         common_dir: Path,
         vcpus: int = 12,
         memory: int = 32768,
+        use_nfs: bool = False,
     ):
         command = [
             "--name",
             name,
             "--disk",
             f"{qcow2_path},device=disk,bus=virtio",
-            f"--os-variant=rocky{vm_major_version}",
+            f"--os-variant={os_variant}",
             "--virt-type",
             "kvm",
             "--vcpus",
@@ -59,12 +60,17 @@ class VmCommand(CommandRunner):
             "--vnc",
             "--cloud-init",
             f"user-data={cloud_init_path}",
-            "--filesystem",
-            f"source={common_dir},target=mount_tag_mock_scratch,accessmode=passthrough,driver.type=virtiofs,driver.queue=1024,binary.path=/usr/libexec/virtiofsd,binary.xattr=on",
-            "--memorybacking",
-            "source.type=memfd,access.mode=shared",
-            "--noautoconsole",
         ]
+
+        if not use_nfs:
+            command += [
+                "--filesystem",
+                f"source={common_dir},target=mount_tag_mock_scratch,accessmode=passthrough,driver.type=virtiofs,driver.queue=1024,binary.path=/usr/libexec/virtiofsd,binary.xattr=on",
+                "--memorybacking",
+                "source.type=memfd,access.mode=shared",
+            ]
+
+        command.append("--noautoconsole")
 
         cls.run(command_type=VmCommandType.VIRT_INSTALL, command=command)
 

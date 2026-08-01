@@ -41,6 +41,8 @@ class KernelInfo:
 
     vm_image_url: str | None = None
     depot_channels: list[str] | None = None
+    os_variant: str | None = None
+    use_nfs: bool = False
     overridden: bool = False
 
 

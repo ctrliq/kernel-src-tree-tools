@@ -13,6 +13,8 @@ kernels:
     mock_config: centos-cbr79
     automated: true
     vm_image_url: https://cloud.centos.org/centos/7/images/CentOS-7-x86_64-GenericCloud-2211.qcow2
+    os_variant: centos7
+    use_nfs: true
 
   lts-8.6:
     src_tree_root: kernel-src-tree
