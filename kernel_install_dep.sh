@@ -59,12 +59,13 @@ install_kselftest_deps_8() {
     traceroute \
     wget
 
-    # Doesn't work for 8.6?
+    # Not available on all 8.x minor releases
     sudo dnf -y install --enablerepo=devel \
     fuse-devel \
     gcc-toolset-13-libasan-devel \
     glibc-static \
-    kernel-selftests-internal
+    kernel-selftests-internal \
+    || echo "Optional packages not available or install failed; continuing."
 
     pip3 install --user \
     jsonschema \
