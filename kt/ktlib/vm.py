@@ -22,6 +22,7 @@ from kt.ktlib.virt import VirtHelper, VmCommand
 
 # TODO move this to a separate repo
 CLOUD_INIT_BASE_PATH = Path(__file__).parent.parent.joinpath("data/cloud_init.yaml")
+CLOUD_INIT_CENTOS7_PATH = Path(__file__).parent.parent.joinpath("data/cloud_init_centos7.yaml")
 
 
 @dataclass
@@ -48,6 +49,8 @@ class Vm:
     kernel_workspace: KernelWorkspace
     vm_image_url: str | None = None
     depot_channels: list[str] | None = None
+    os_variant: str | None = None
+    use_nfs: bool = False
 
     @classmethod
     def load(
@@ -56,6 +59,8 @@ class Vm:
         kernel_workspace: KernelWorkspace,
         vm_image_url: str | None = None,
         depot_channels: list[str] | None = None,
+        os_variant: str | None = None,
+        use_nfs: bool = False,
     ):
         kernel_workspace_str = kernel_workspace.folder.name
         kernel_name = cls._extract_kernel_name(kernel_workspace_str)
@@ -85,6 +90,8 @@ class Vm:
             kernel_workspace=kernel_workspace,
             vm_image_url=vm_image_url,
             depot_channels=depot_channels,
+            os_variant=os_variant,
+            use_nfs=use_nfs,
         )
 
     @classmethod
@@ -123,15 +130,24 @@ class Vm:
 
         vm_image_url = None
         depot_channels = None
+        os_variant = None
+        use_nfs = False
         kernel_name = cls._extract_kernel_name(kernel_workspace_name)
         kernels_info = KernelsInfo.from_yaml(config=config)
         kernel_info = kernels_info.kernels.get(kernel_name)
         if kernel_info:
             vm_image_url = kernel_info.vm_image_url
             depot_channels = kernel_info.depot_channels
+            os_variant = kernel_info.os_variant
+            use_nfs = kernel_info.use_nfs
 
         return cls.load(
-            config=config, kernel_workspace=kernel_workspace, vm_image_url=vm_image_url, depot_channels=depot_channels
+            config=config,
+            kernel_workspace=kernel_workspace,
+            vm_image_url=vm_image_url,
+            depot_channels=depot_channels,
+            os_variant=os_variant,
+            use_nfs=use_nfs,
         )
 
     @classmethod
@@ -188,6 +204,9 @@ class Vm:
         logging.info(f"Downloading image from {self._get_vm_url()}")
         wget.download(self._get_vm_url(), out=str(self.qcow2_source_path))
 
+    def _is_centos7(self) -> bool:
+        return bool(self.os_variant and self.os_variant.startswith("centos7"))
+
     def _setup_cloud_init(self, config: Config, no_depot: bool = False):
         yaml = YAML()
         yaml.preserve_quotes = True
@@ -195,8 +214,8 @@ class Vm:
         yaml.default_flow_style = False
         yaml.best_sequence_indent = 2
 
-        data = None
-        with open(CLOUD_INIT_BASE_PATH) as f:
+        template_path = CLOUD_INIT_CENTOS7_PATH if self._is_centos7() else CLOUD_INIT_BASE_PATH
+        with open(template_path) as f:
             data = yaml.load(f)
 
         # replace placeholders with user data
@@ -210,8 +229,15 @@ class Vm:
             ssh_key_content = f.read().strip()
             data["users"][0]["ssh_authorized_keys"][0] = ssh_key_content
 
-        data["mounts"][0][1] = str(config.base_path.absolute())
-        data["mounts"][1][0] = str(config.base_path.absolute())
+        base_path_str = str(config.base_path.absolute())
+        if self._is_centos7():
+            nfs_source = f"{Constants.LIBVIRT_HOST_IP}:{base_path_str}"
+            data["mounts"][0][0] = nfs_source
+            data["mounts"][0][1] = base_path_str
+            data["mounts"][1][0] = base_path_str
+        else:
+            data["mounts"][0][1] = base_path_str
+            data["mounts"][1][0] = base_path_str
 
         # Go to the working directory of the kernel
         working_dir = config.kernels_dir / Path(self.name)
@@ -223,20 +249,23 @@ class Vm:
         data["runcmd"][0][1] = f"{config.user}:{config.user}"
         data["runcmd"][0][2] = os.environ["HOME"]
 
-        # Pin dnf to vault for kernels with a pinned VM image (Rocky only, not CentOS/cbr)
-        if self.vm_image_url:
-            data["runcmd"].append(f'echo "{self.vm_major_minor_version}" > /etc/dnf/vars/releasever')
-            data["runcmd"].append('echo "vault/rocky" > /etc/dnf/vars/contentdir')
-            data["runcmd"].append(
-                "cd /etc/yum.repos.d/ && for f in *.repo; do "
-                'sed -i -e "s/^mirrorlist=/#mirrorlist=/" -e "s/#baseurl=/baseurl=/" "$f"; done'
-            )
-            data["runcmd"].append("dnf clean all")
+        if not self._is_centos7():
+            # Pin dnf to vault for kernels with a pinned VM image (Rocky only)
+            if self.vm_image_url:
+                data["runcmd"].append(f'echo "{self.vm_major_minor_version}" > /etc/dnf/vars/releasever')
+                data["runcmd"].append('echo "vault/rocky" > /etc/dnf/vars/contentdir')
+                data["runcmd"].append(
+                    "cd /etc/yum.repos.d/ && for f in *.repo; do "
+                    'sed -i -e "s/^mirrorlist=/#mirrorlist=/" -e "s/#baseurl=/baseurl=/" "$f"; done'
+                )
+                data["runcmd"].append("dnf clean all")
+
+        pkg_mgr = "yum" if self._is_centos7() else "dnf"
 
         # Depot: install the client and login+enable if credentials are present
         if not no_depot:
             data["runcmd"].append(
-                "dnf install -y https://depot.ciq.com/public/files/depot-client/depot/depot.x86_64.rpm"
+                f"{pkg_mgr} install -y https://depot.ciq.com/public/files/depot-client/depot/depot.x86_64.rpm"
             )
             depot_user = os.environ.get("DEPOT_USER")
             depot_token = os.environ.get("DEPOT_TOKEN")
@@ -244,9 +273,15 @@ class Vm:
                 data["runcmd"].append(f"depot login -u {depot_user} -t {depot_token}")
                 for channel in self.depot_channels:
                     data["runcmd"].append(f"depot enable {channel} -y")
+            data["runcmd"].append(f"{pkg_mgr} clean all")
+            data["runcmd"].append(f"{pkg_mgr} update -y")
 
-        # Install packages needed later
-        data["runcmd"].append([str(config.base_path / Path("kernel-src-tree-tools") / Path("kernel_install_dep.sh"))])
+        # kernel_install_dep.sh only supports Rocky 8/9/10
+        if not self._is_centos7():
+            data["runcmd"].append(
+                [str(config.base_path / Path("kernel-src-tree-tools") / Path("kernel_install_dep.sh"))]
+            )
+
         # Write this to image cloud_init
         with open(self.cloud_init_path, "w") as f:
             yaml.dump(data, f)
@@ -266,14 +301,16 @@ class Vm:
         time.sleep(Constants.VM_STARTUP_WAIT_SECONDS)
 
     def _virt_install(self, config: Config, vcpus: int = 12, memory: int = 32768):
+        os_variant = self.os_variant or f"rocky{self.vm_major_version}"
         return VmCommand.install(
             name=self.name,
             qcow2_path=self.qcow2_path,
-            vm_major_version=self.vm_major_version,
+            os_variant=os_variant,
             cloud_init_path=self.cloud_init_path,
             common_dir=config.base_path,
             vcpus=vcpus,
             memory=memory,
+            use_nfs=self.use_nfs,
         )
 
     def _resize_disk(self):
@@ -287,11 +324,33 @@ class Vm:
     def setup(self, override_base: bool = False):
         self._download_source_image(override_base=override_base)
 
+    def _wait_for_running(self):
+        attempted_start = False
+        for attempt in range(Constants.VM_POLL_MAX_ATTEMPTS):
+            if VirtHelper.is_running(vm_name=self.name):
+                logging.info(f"VM {self.name} is running")
+                return
+            if not attempted_start and VirtHelper.exists(vm_name=self.name):
+                logging.info(f"VM {self.name} is shut off, attempting start...")
+                try:
+                    VmCommand.start(vm_name=self.name)
+                    attempted_start = True
+                except RuntimeError as e:
+                    logging.warning(f"Failed to start VM {self.name}: {e}")
+            logging.info(
+                f"Waiting for VM {self.name} to be running (attempt {attempt + 1}/{Constants.VM_POLL_MAX_ATTEMPTS})..."
+            )
+            time.sleep(Constants.VM_POLL_INTERVAL_SECONDS)
+        raise RuntimeError(
+            f"VM {self.name} did not become running after {Constants.VM_POLL_MAX_ATTEMPTS * Constants.VM_POLL_INTERVAL_SECONDS}s"
+        )
+
     def spin_up(self, config: Config, vcpus: int = 12, memory: int = 32768, no_depot: bool = False) -> VmInstance:
         if not VirtHelper.exists(vm_name=self.name):
             logging.info(f"VM {self.name} does not exist, creating from scratch...")
 
             self._create_image(config=config, vcpus=vcpus, memory=memory, no_depot=no_depot)
+            self._wait_for_running()
             return VmInstance(name=self.name, kernel_workspace=self.kernel_workspace)
 
         logging.info(f"Vm {self.name} already exists")
@@ -302,7 +361,7 @@ class Vm:
 
         logging.info(f"Vm {self.name} is not running, starting it")
         VmCommand.start(vm_name=self.name)
-        time.sleep(Constants.VM_STARTUP_WAIT_SECONDS)
+        self._wait_for_running()
 
         return VmInstance(name=self.name, kernel_workspace=self.kernel_workspace)
 
