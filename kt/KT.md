@@ -11,16 +11,68 @@ By keeping this under the same repo, it will be easier to refactor things.
 
 ## Setup:
 
-1. Install dependencies globally (you can also create a venv) :
+1. Install dependencies globally (you can also create a venv) in the repository
+root directory:
 ```
-$ python -m pip install -e ".[dev]"
+[kernel-src-tree-tools]$ python -m pip install -e ".[dev]"
 ```
 2. The command above will install pre-commit. To setup the pre-commit tool
 before you commit something, run this:
 ```
-$ pre-commit install
+[kernel-src-tree-tools]$ pre-commit install
 ```
 
+3. Set up the configuration file for kt.
+There is a default one in kt/data/config.json but you can create your own by
+defining the KTOOLS_CONFIG_FILE environment variable to point to your own config
+file.
+```bash
+$ echo $KTOOLS_CONFIG_FILE
+/home/jmaple/.config/kt/test_config.json
+
+(.venv) [jmaple@devbox kernel-src-tree-tools]$ cat $KTOOLS_CONFIG_FILE
+{
+  "base_path": "~/workspace/kt_test",
+  "kernels_dir": "~/workspace/kt_test/kernels",
+  "images_source_dir": "~/workspace/kt_test/images_source",
+  "images_dir": "~/workspace/kt_test/images",
+  "ssh_key": "~/.ssh/test.pub",
+  "user": "USER"
+}
+```
+user defaults to $USER, set this if you wish for your user on the VMs to be
+different than the default.
+
+4. Private Repos
+By default, kt will use the public repos defined in kt/data/kernels.yaml. If
+you have access to our private repos, you can create a .private_repos.yaml in
+the base_path directory and define the private repos and branches should they
+differ from the public ones. For example:
+```yaml
+private_repos:
+    dist-git-tree-lts: <gitlab_private_repo_url>
+
+kernel_overrides:
+    lts-9.2:
+        dist_git_branch: <private_branch>
+        dist_git_root: dist-git-tree-lts
+```
+
+Optional is if you have an active depot account you can define the channels you
+wish to use for each kernel. For example:
+```yaml
+kernel_overrides:
+    lts-9.2:
+        dist_git_branch: <private_branch>
+        dist_git_root: dist-git-tree-lts
+        depot_channels:
+            - <channel_name>
+```
+
+5. Setup needs to be run first.
+```bash
+$ kt setup
+```
 ## Implementation details:
 
 kt/ktlib is the place for common helpers that would be used for kt commands.
