@@ -43,8 +43,21 @@ class Config:
         "user": os.environ["USER"],
     }
 
+    REQUIRED_KEYS: ClassVar = {"base_path", "kernels_dir", "images_source_dir", "images_dir", "ssh_key"}
+
     @classmethod
     def from_str_dict(cls, data: dict[str, str]):
+        missing = cls.REQUIRED_KEYS - data.keys()
+        if missing:
+            example = json.dumps(cls.DEFAULT, indent=2)
+            raise ValueError(
+                f"Error: config is missing required keys:\n\t{', '.join(sorted(missing))}"
+                f"\n\nExample config (note user is optional):\n{example}"
+            )
+
+        if "user" not in data:
+            data = {**data, "user": os.environ["USER"]}
+
         # Transform the str values to Path except for user
         non_path_keys = {"user"}
         new_data = {k: (Path(v).expanduser() if k not in non_path_keys else v) for k, v in data.items()}
