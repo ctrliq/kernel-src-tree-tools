@@ -1,0 +1,52 @@
+#cloud-config
+users:
+  - name: USER_PLACEHOLDER
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: mock
+    ssh_authorized_keys:
+      - SSH_KEY_PLACEHOLDER
+chpasswd:
+  expire: false
+  list:
+    - USER_PLACEHOLDER:test
+
+ssh_pwauth: true
+
+# Ensure the system does not update on boot.
+package_upgrade: False
+
+mounts:
+  - - NFS_SOURCE_PLACEHOLDER
+    - SHARED_DIR_PLACEHOLDER
+    - nfs
+    - defaults
+  - - SHARED_DIR_PLACEHOLDER
+    - /var/lib/mock
+    - bind
+    - defaults,bind
+
+# Change working directory after boot
+write_files:
+  - path: /etc/profile.d/change_dir.sh
+    content: |
+      cd WORKING_DIR_PLACEHOLDER
+    permissions: '0644'
+
+# if homedir already exists, cloud-init does nothing about it
+# and then root is the owner
+# workaround to change the owner to user
+runcmd:
+  - - chown
+    - USER_PLACEHOLDER:USER_PLACEHOLDER
+    - HOMEDIR_PLACEHOLDER
+  - sudo sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/CentOS-*.repo
+  - sed -i s/^#.*baseurl=http/baseurl=http/g /etc/yum.repos.d/CentOS-*.repo
+  - sed -i s/^mirrorlist=http/#mirrorlist=http/g /etc/yum.repos.d/CentOS-*.repo
+  - [sudo, yum, install, -y, mock, git, vim]
+  - [sudo, yum, install, -y, ncurses-devel, make, gcc, bc, bison, flex, elfutils-libelf-devel, openssl-devel]
+
+power_state:
+  mode: reboot
+  message: "Rebooting after install"
+  timeout: 30
+  condition: true

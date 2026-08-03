@@ -12,6 +12,9 @@ class Constants:
     DEFAULT_VM_BASE = "Rocky"
 
     CLOUD_INIT = "cloud_init.yaml"
+    LIBVIRT_HOST_IP = "192.168.122.1"
 
     VM_STARTUP_WAIT_SECONDS = 60
     VM_REBOOT_WAIT_SECONDS = 120
+    VM_POLL_INTERVAL_SECONDS = 15
+    VM_POLL_MAX_ATTEMPTS = 20
