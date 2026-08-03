@@ -3,6 +3,13 @@ Welcome to the CIQ kernel-src-tree-tools package. This is a collection of script
 
 These are just scripts we have used internally and have decided to share with the community to encourage other to contribute to our requirements more easily.
 
+## KT (Kernel Tools)
+In this repo there is a directory called `kt` which contains a "kernel tools"
+python package that should be installed into your python environment.  Its purpose
+is to consolidate all of the one off or single purpose scripts to share more
+common code and functionality. Please see the KT directions in [kt/KT.md](kt/KT.md) for
+setup directions.
+
 ## ciq-cherry-pick
 This script is used to cherry-pick a commit from a remote repository to the current branch.
 It is a wrapper around `git cherry-pick -nsx <sha>` command but sets up the incoming commit with the header information we require.

@@ -15,8 +15,6 @@ kernels:
     vm_image_url: https://cloud.centos.org/centos/7/images/CentOS-7-x86_64-GenericCloud-2211.qcow2
     os_variant: centos7
     use_nfs: true
-    depot_channels:
-      - bridge
 
   lts-8.6:
     src_tree_root: kernel-src-tree
@@ -26,8 +24,6 @@ kernels:
     mock_config: rocky-lts86
     automated: true
     vm_image_url: https://dl.rockylinux.org/vault/rocky/8.6/images/Rocky-8-GenericCloud-8.6.20220702.0.x86_64.qcow2
-    depot_channels:
-      - lts-8.6
 
   lts-9.2:
     src_tree_root: kernel-src-tree
@@ -37,8 +33,6 @@ kernels:
     mock_config: rocky-lts92
     automated: true
     vm_image_url: https://dl.rockylinux.org/vault/rocky/9.2/images/x86_64/Rocky-9-GenericCloud-Base-9.2-20230513.0.x86_64.qcow2
-    depot_channels:
-      - lts-9.2
 
   lts-9.6:
     src_tree_root: kernel-src-tree
@@ -48,8 +42,6 @@ kernels:
     mock_config: rocky-lts96
     automated: true
     vm_image_url: https://dl.rockylinux.org/vault/rocky/9.6/images/x86_64/Rocky-9-GenericCloud-Base-9.6-20250531.0.x86_64.qcow2
-    depot_channels:
-      - lts-9.6
 
   fipslegacy-8.6:
     src_tree_root: kernel-src-tree
