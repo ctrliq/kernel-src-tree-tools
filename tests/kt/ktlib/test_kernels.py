@@ -4,13 +4,13 @@ from pathlib3x import Path
 from kt.ktlib.config import Config
 from kt.ktlib.kernels import KernelsInfo
 
-common_repos = {"dist-git-tree-cbr": "dist-url", "kernel-src-tree": "src-url"}
+common_repos = {"dist-git-tree": "dist-url", "kernel-src-tree": "src-url"}
 
 kernels = {
     "kernel1": {
         "src_tree_root": "kernel-src-tree",
         "src_tree_branch": "src-branch",
-        "dist_git_root": "dist-git-tree-cbr",
+        "dist_git_root": "dist-git-tree",
         "dist_git_branch": "dist-branch",
         "mock_config": "test-mock-config",
         "automated": True,
@@ -91,7 +91,7 @@ def test_kernels_from_dict_check_dist_root():
 
     kernels_info = KernelsInfo.from_dict(data=data, private_data={}, config=config)
     kernel_info = list(kernels_info.kernels.values())[0]
-    assert kernel_info.dist_git_root.folder == config.base_path / Path("dist-git-tree-cbr")
+    assert kernel_info.dist_git_root.folder == config.base_path / Path("dist-git-tree")
 
 
 def test_kernels_from_dict_check_src_root():
@@ -108,6 +108,43 @@ def test_kernels_vm_image_url_default_none():
     kernels_info = KernelsInfo.from_dict(data=data, private_data={}, config=config)
     kernel_info = list(kernels_info.kernels.values())[0]
     assert kernel_info.vm_image_url is None
+
+
+def test_kernels_override_dist_git_branch():
+    config = Config.from_str_dict(Config.DEFAULT)
+    overrides = {"kernel1": {"dist_git_branch": "overridden-branch"}}
+
+    kernels_info = KernelsInfo.from_dict(data=data, private_data={}, config=config, kernel_overrides=overrides)
+    kernel_info = list(kernels_info.kernels.values())[0]
+    assert kernel_info.dist_git_branch == "overridden-branch"
+
+
+def test_kernels_override_dist_git_root():
+    private_repos = {"dist-git-tree-private": "private-url"}
+    overrides = {"kernel1": {"dist_git_root": "dist-git-tree-private"}}
+    config = Config.from_str_dict(Config.DEFAULT)
+
+    kernels_info = KernelsInfo.from_dict(
+        data=data, private_data=private_repos, config=config, kernel_overrides=overrides
+    )
+    kernel_info = list(kernels_info.kernels.values())[0]
+    assert kernel_info.dist_git_root.folder == config.base_path / Path("dist-git-tree-private")
+
+
+def test_kernels_override_nonexistent_kernel_ignored():
+    config = Config.from_str_dict(Config.DEFAULT)
+    overrides = {"nonexistent-kernel": {"dist_git_branch": "some-branch"}}
+
+    kernels_info = KernelsInfo.from_dict(data=data, private_data={}, config=config, kernel_overrides=overrides)
+    assert len(kernels_info.kernels) == 1
+
+
+def test_kernels_no_overrides_uses_defaults():
+    config = Config.from_str_dict(Config.DEFAULT)
+
+    kernels_info = KernelsInfo.from_dict(data=data, private_data={}, config=config)
+    kernel_info = list(kernels_info.kernels.values())[0]
+    assert kernel_info.dist_git_branch == "dist-branch"
 
 
 def test_kernels_vm_image_url_present():
