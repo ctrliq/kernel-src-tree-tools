@@ -1,3 +1,6 @@
+import logging
+import re
+import time
 from enum import Enum
 
 from pathlib3x import Path
@@ -107,11 +110,23 @@ class VmCommand(CommandRunner):
 
 
 class VirtHelper:
+    IP_PATTERN = re.compile(r"\d+\.\d+\.\d+\.\d+")
+    IP_POLL_INTERVAL = 5
+    IP_POLL_MAX_ATTEMPTS = 24
+
     @classmethod
     def ip_addr(cls, vm_name: str) -> str:
-        rc = VmCommand.domifaddr(vm_name=vm_name)
-
-        return rc[-1].split("/")[0]
+        for attempt in range(cls.IP_POLL_MAX_ATTEMPTS):
+            output = VmCommand.domifaddr(vm_name=vm_name)
+            for token in output:
+                match = cls.IP_PATTERN.search(token)
+                if match:
+                    return match.group()
+            logging.info(f"Waiting for IP address for {vm_name} (attempt {attempt + 1}/{cls.IP_POLL_MAX_ATTEMPTS})...")
+            time.sleep(cls.IP_POLL_INTERVAL)
+        raise RuntimeError(
+            f"VM {vm_name} did not get an IP address after {cls.IP_POLL_MAX_ATTEMPTS * cls.IP_POLL_INTERVAL}s"
+        )
 
     @classmethod
     def is_running(cls, vm_name: str) -> bool:
