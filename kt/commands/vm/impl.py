@@ -43,7 +43,11 @@ def main(
 
     if test:
         logging.info("Waiting for cloud-init to finish...")
-        SshCommand.run(domain=vm_instance.domain, command=["sudo cloud-init status --wait || true"])
+        SshCommand.run(
+            domain=vm_instance.domain,
+            command=["sudo cloud-init status --wait || true"],
+            ssh_key=vm_instance.ssh_key,
+        )
         vm_instance.test(config=config)
 
     if console:
