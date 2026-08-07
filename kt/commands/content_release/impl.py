@@ -315,18 +315,7 @@ class ContentRelease:
 
         # Wait for cloud-init to finish (may reboot the VM, e.g. CentOS 7)
         logging.info("Waiting for VM dependencies to be installed...")
-        try:
-            SshCommand.run(
-                domain=vm_instance.domain,
-                command=["sudo cloud-init status --wait || true"],
-                ssh_key=vm_instance.ssh_key,
-            )
-        except RuntimeError as e:
-            if "closed by remote host" in str(e):
-                logging.info("VM rebooted during cloud-init, waiting for it to come back...")
-                vm_instance._wait_for_ssh()
-            else:
-                raise
+        vm_instance.wait_for_cloud_init()
 
         # Install the built RPMs
         build_files_dir = kernel_workspace_obj.folder / "build_files"

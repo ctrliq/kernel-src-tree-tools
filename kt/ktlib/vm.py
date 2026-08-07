@@ -407,6 +407,21 @@ class VmInstance:
             f"{Constants.VM_POLL_MAX_ATTEMPTS * Constants.VM_POLL_INTERVAL_SECONDS}s"
         )
 
+    def wait_for_cloud_init(self):
+        """ "Wait for cloud-init to finish on the VM. This method will block until cloud-init has completed its tasks."""
+        try:
+            SshCommand.run(
+                domain=self.domain,
+                command=["sudo cloud-init status --wait || true"],
+                ssh_key=self.ssh_key,
+            )
+        except RuntimeError as e:
+            if "closed by remote host" in str(e):
+                logging.info("VM rebooted during cloud-init, waiting for it to come back...")
+                self._wait_for_ssh()
+            else:
+                raise
+
     def reboot(self):
         logging.debug("Rebooting vm")
 
