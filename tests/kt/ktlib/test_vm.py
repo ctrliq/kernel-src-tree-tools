@@ -1,12 +1,13 @@
 import os
 from io import StringIO
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
+import pytest
 from ruamel.yaml import YAML
 from pathlib3x import Path
 
 from kt.ktlib.util import Constants
-from kt.ktlib.vm import Vm
+from kt.ktlib.vm import Vm, VmInstance
 
 _real_open = open
 
@@ -225,3 +226,61 @@ def test_cloud_init_no_depot_skips_depot_install():
     runcmd_strs = [str(c) for c in runcmd]
     assert not any("depot.x86_64.rpm" in s for s in runcmd_strs)
     assert any("kernel_install_dep.sh" in s for s in runcmd_strs)
+
+
+def _make_vm_instance(**overrides):
+    inst = VmInstance.__new__(VmInstance)
+    inst.name = "lts-9.2"
+    inst.domain = "testuser@192.168.122.10"
+    inst.kernel_workspace = MagicMock()
+    inst.ssh_key = "/tmp/fake_key"
+    for k, v in overrides.items():
+        setattr(inst, k, v)
+    return inst
+
+
+@patch("kt.ktlib.vm.SshCommand.run")
+def test_wait_for_cloud_init_success(mock_ssh_run):
+    """cloud-init finishes normally, no reboot."""
+    inst = _make_vm_instance()
+    inst.wait_for_cloud_init()
+
+    mock_ssh_run.assert_called_once_with(
+        domain="testuser@192.168.122.10",
+        command=["sudo cloud-init status --wait || true"],
+        ssh_key="/tmp/fake_key",
+    )
+
+
+@patch("kt.ktlib.vm.time.sleep")
+@patch("kt.ktlib.vm.SshCommand.run")
+def test_wait_for_cloud_init_reboot_recovery(mock_ssh_run, mock_sleep):
+    """cloud-init reboots the VM, then SSH comes back."""
+    mock_ssh_run.side_effect = [
+        RuntimeError("Connection to 192.168.122.10 closed by remote host."),
+        None,  # _wait_for_ssh -> "true" succeeds
+    ]
+    inst = _make_vm_instance()
+    inst.wait_for_cloud_init()
+
+    assert mock_ssh_run.call_count == 2
+    assert mock_ssh_run.call_args_list[0] == call(
+        domain="testuser@192.168.122.10",
+        command=["sudo cloud-init status --wait || true"],
+        ssh_key="/tmp/fake_key",
+    )
+    assert mock_ssh_run.call_args_list[1] == call(
+        domain="testuser@192.168.122.10",
+        command=["true"],
+        ssh_key="/tmp/fake_key",
+    )
+
+
+@patch("kt.ktlib.vm.SshCommand.run")
+def test_wait_for_cloud_init_other_error_raises(mock_ssh_run):
+    """Non-reboot SSH errors propagate."""
+    mock_ssh_run.side_effect = RuntimeError("Permission denied")
+    inst = _make_vm_instance()
+
+    with pytest.raises(RuntimeError, match="Permission denied"):
+        inst.wait_for_cloud_init()
