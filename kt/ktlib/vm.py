@@ -351,19 +351,19 @@ class Vm:
 
             self._create_image(config=config, vcpus=vcpus, memory=memory, no_depot=no_depot)
             self._wait_for_running()
-            return VmInstance(name=self.name, kernel_workspace=self.kernel_workspace)
+            return VmInstance(name=self.name, kernel_workspace=self.kernel_workspace, config=config)
 
         logging.info(f"Vm {self.name} already exists")
 
         if VirtHelper.is_running(vm_name=self.name):
             logging.info(f"Vm {self.name} is running, nothing to do")
-            return VmInstance(name=self.name, kernel_workspace=self.kernel_workspace)
+            return VmInstance(name=self.name, kernel_workspace=self.kernel_workspace, config=config)
 
         logging.info(f"Vm {self.name} is not running, starting it")
         VmCommand.start(vm_name=self.name)
         self._wait_for_running()
 
-        return VmInstance(name=self.name, kernel_workspace=self.kernel_workspace)
+        return VmInstance(name=self.name, kernel_workspace=self.kernel_workspace, config=config)
 
     def destroy(self):
         if VirtHelper.is_running(vm_name=self.name):
@@ -381,19 +381,20 @@ class VmInstance:
     ssh_domain: str
     kernel_workspace: KernelWorkspace
 
-    def __init__(self, name: str, kernel_workspace: KernelWorkspace):
+    def __init__(self, name: str, kernel_workspace: KernelWorkspace, config: Config):
         self.name = name
         ip_addr = VirtHelper.ip_addr(vm_name=self.name)
-        username = os.environ["USER"]
-        self.domain = f"{username}@{ip_addr}"
+        self.domain = f"{config.user}@{ip_addr}"
         self.kernel_workspace = kernel_workspace
+        ssh_pub = str(config.ssh_key)
+        self.ssh_key = ssh_pub.removesuffix(".pub") if ssh_pub.endswith(".pub") else ssh_pub
 
     def reboot(self):
         logging.debug("Rebooting vm")
 
         command = ["sudo", "reboot"]
         try:
-            SshCommand.run(domain=self.domain, command=command)
+            SshCommand.run(domain=self.domain, command=command, ssh_key=self.ssh_key)
         except RuntimeError as e:
             if "closed by remote host" in str(e):
                 pass
@@ -416,7 +417,7 @@ class VmInstance:
         output_file = self.kernel_workspace.folder.absolute() / Path(f"kselftest-{self.current_head_sha_short()}.log")
         ssh_cmd = f"cd {self.kernel_workspace.src_worktree.folder.absolute()} &&  sudo {script}"
 
-        SshCommand.run_with_output(output_file=output_file, domain=self.domain, command=[ssh_cmd])
+        SshCommand.run_with_output(output_file=output_file, domain=self.domain, command=[ssh_cmd], ssh_key=self.ssh_key)
 
     def kselftests_internal(self, output_file: Path):
         """
@@ -434,7 +435,9 @@ class VmInstance:
         kselftest_cmd = "sudo /usr/libexec/kselftests/run_kselftest.sh"
 
         try:
-            SshCommand.run_with_output(output_file=output_file, domain=self.domain, command=[kselftest_cmd])
+            SshCommand.run_with_output(
+                output_file=output_file, domain=self.domain, command=[kselftest_cmd], ssh_key=self.ssh_key
+            )
             logging.info("Kselftests completed successfully")
         except RuntimeError as e:
             logging.error(f"Kselftests failed: {e}")
@@ -468,7 +471,7 @@ class VmInstance:
         Returns:
             str: The kernel version string (e.g., "5.14.0-284.30.1+23.1.el9_2_ciq.x86_64")
         """
-        return SshCommand.running_kernel_version(domain=self.domain)
+        return SshCommand.running_kernel_version(domain=self.domain, ssh_key=self.ssh_key)
 
     def expected_kernel_version(self):
         """
@@ -499,7 +502,7 @@ class VmInstance:
         )
         ssh_cmd = f"cd {self.kernel_workspace.src_worktree.folder.absolute()} &&  {build_script} -n"
 
-        SshCommand.run_with_output(output_file=output_file, domain=self.domain, command=[ssh_cmd])
+        SshCommand.run_with_output(output_file=output_file, domain=self.domain, command=[ssh_cmd], ssh_key=self.ssh_key)
 
     def test(self, config):
         if self.expected_kernel_version():

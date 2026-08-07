@@ -307,7 +307,11 @@ class ContentRelease:
 
         # Wait for dependencies to be installed if VM was just created
         logging.info("Waiting for VM dependencies to be installed...")
-        SshCommand.run(domain=vm_instance.domain, command=["sudo cloud-init status --wait || true"])
+        SshCommand.run(
+            domain=vm_instance.domain,
+            command=["sudo cloud-init status --wait || true"],
+            ssh_key=vm_instance.ssh_key,
+        )
 
         # Install the built RPMs
         build_files_dir = kernel_workspace_obj.folder / "build_files"
@@ -331,17 +335,22 @@ class ContentRelease:
                     command=[
                         'sudo dnf install -y "https://depot.ciq.com/public/files/depot-client/depot/depot.x86_64.rpm"'
                     ],
+                    ssh_key=vm_instance.ssh_key,
                 )
                 logging.info("Depot client installed")
 
                 # Register depot with credentials
                 SshCommand.run(
-                    domain=vm_instance.domain, command=[f"sudo depot register -u {depot_user} -t {depot_token}"]
+                    domain=vm_instance.domain,
+                    command=[f"sudo depot register -u {depot_user} -t {depot_token}"],
+                    ssh_key=vm_instance.ssh_key,
                 )
                 logging.info("Depot registered")
 
                 # Enable fips-legacy-8
-                SshCommand.run(domain=vm_instance.domain, command=["sudo depot enable fips-legacy-8"])
+                SshCommand.run(
+                    domain=vm_instance.domain, command=["sudo depot enable fips-legacy-8"], ssh_key=vm_instance.ssh_key
+                )
                 logging.info("fips-legacy-8 enabled via depot")
             except RuntimeError as e:
                 logging.error(f"Failed to enable depot for fipslegacy-8.6: {e}")
@@ -372,7 +381,9 @@ class ContentRelease:
         logging.info(f"RPM install output will be written to {install_log}")
 
         try:
-            SshCommand.run_with_output(output_file=install_log, domain=vm_instance.domain, command=[install_cmd])
+            SshCommand.run_with_output(
+                output_file=install_log, domain=vm_instance.domain, command=[install_cmd], ssh_key=vm_instance.ssh_key
+            )
             logging.info("RPMs installed successfully")
         except RuntimeError as e:
             logging.error(f"RPM installation failed: {e}")
@@ -407,7 +418,7 @@ class ContentRelease:
             "fi'"
         )
         try:
-            SshCommand.run(domain=vm_instance.domain, command=[grubenv_fix_cmd])
+            SshCommand.run(domain=vm_instance.domain, command=[grubenv_fix_cmd], ssh_key=vm_instance.ssh_key)
             logging.info("grubenv symlink fixed if needed")
         except RuntimeError as e:
             logging.error(f"Failed to fix grubenv symlink: {e}")
@@ -419,7 +430,7 @@ class ContentRelease:
             kernel_path = f"/boot/vmlinuz-{expected_version}"
             set_default_cmd = f"sudo grubby --set-default={kernel_path}"
             try:
-                SshCommand.run(domain=vm_instance.domain, command=[set_default_cmd])
+                SshCommand.run(domain=vm_instance.domain, command=[set_default_cmd], ssh_key=vm_instance.ssh_key)
                 logging.info("Default boot kernel set successfully")
             except RuntimeError as e:
                 logging.error(f"Failed to set default boot kernel: {e}")
