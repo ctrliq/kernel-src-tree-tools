@@ -232,6 +232,7 @@ class Vm:
         base_path_str = str(config.base_path.absolute())
         if self._is_centos7():
             nfs_source = f"{Constants.LIBVIRT_HOST_IP}:{base_path_str}"
+            data["bootcmd"][0] = f"mkdir -p {base_path_str}"
             data["mounts"][0][0] = nfs_source
             data["mounts"][0][1] = base_path_str
             data["mounts"][1][0] = base_path_str

@@ -43,11 +43,18 @@ def main(
 
     if test:
         logging.info("Waiting for cloud-init to finish...")
-        SshCommand.run(
-            domain=vm_instance.domain,
-            command=["sudo cloud-init status --wait || true"],
-            ssh_key=vm_instance.ssh_key,
-        )
+        try:
+            SshCommand.run(
+                domain=vm_instance.domain,
+                command=["sudo cloud-init status --wait || true"],
+                ssh_key=vm_instance.ssh_key,
+            )
+        except RuntimeError as e:
+            if "closed by remote host" in str(e):
+                logging.info("VM rebooted during cloud-init, waiting for it to come back...")
+                vm_instance._wait_for_ssh()
+            else:
+                raise
         vm_instance.test(config=config)
 
     if console:
