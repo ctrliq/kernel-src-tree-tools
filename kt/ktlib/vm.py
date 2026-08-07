@@ -388,6 +388,23 @@ class VmInstance:
         self.kernel_workspace = kernel_workspace
         ssh_pub = str(config.ssh_key)
         self.ssh_key = ssh_pub.removesuffix(".pub") if ssh_pub.endswith(".pub") else ssh_pub
+        self._wait_for_ssh()
+
+    def _wait_for_ssh(self):
+        for attempt in range(Constants.VM_POLL_MAX_ATTEMPTS):
+            try:
+                SshCommand.run(domain=self.domain, command=["true"], ssh_key=self.ssh_key)
+                logging.info(f"SSH connection to {self.domain} established")
+                return
+            except RuntimeError:
+                logging.info(
+                    f"Waiting for SSH on {self.domain} (attempt {attempt + 1}/{Constants.VM_POLL_MAX_ATTEMPTS})..."
+                )
+                time.sleep(Constants.VM_POLL_INTERVAL_SECONDS)
+        raise RuntimeError(
+            f"SSH to {self.domain} not available after "
+            f"{Constants.VM_POLL_MAX_ATTEMPTS * Constants.VM_POLL_INTERVAL_SECONDS}s"
+        )
 
     def reboot(self):
         logging.debug("Rebooting vm")
