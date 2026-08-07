@@ -6,6 +6,7 @@ from git import GitCommandError, Repo
 
 from kt.ktlib.config import Config
 from kt.ktlib.kernel_workspace import KernelWorkspace
+from kt.ktlib.kernels import KernelsInfo
 from kt.ktlib.local import LocalCommand
 from kt.ktlib.mock import Mock
 from kt.ktlib.ssh import SshCommand
@@ -302,16 +303,30 @@ class ContentRelease:
         # Load kernel workspace
         kernel_workspace_obj = KernelWorkspace.load_from_name(kernel_workspace)
 
+        # Determine package manager based on OS variant
+        config = Config.load()
+        kernels_info = KernelsInfo.from_yaml(config)
+        kernel_name = Vm._extract_kernel_name(kernel_workspace)
+        kernel_info = kernels_info.kernels.get(kernel_name)
+        pkg_mgr = "yum" if (kernel_info and (kernel_info.os_variant or "").startswith("centos7")) else "dnf"
+
         # Setup and spin up the VM (reuses common code from vm command)
         vm_instance = Vm.setup_and_spinup(kernel_workspace_name=kernel_workspace)
 
-        # Wait for dependencies to be installed if VM was just created
+        # Wait for cloud-init to finish (may reboot the VM, e.g. CentOS 7)
         logging.info("Waiting for VM dependencies to be installed...")
-        SshCommand.run(
-            domain=vm_instance.domain,
-            command=["sudo cloud-init status --wait || true"],
-            ssh_key=vm_instance.ssh_key,
-        )
+        try:
+            SshCommand.run(
+                domain=vm_instance.domain,
+                command=["sudo cloud-init status --wait || true"],
+                ssh_key=vm_instance.ssh_key,
+            )
+        except RuntimeError as e:
+            if "closed by remote host" in str(e):
+                logging.info("VM rebooted during cloud-init, waiting for it to come back...")
+                vm_instance._wait_for_ssh()
+            else:
+                raise
 
         # Install the built RPMs
         build_files_dir = kernel_workspace_obj.folder / "build_files"
@@ -370,11 +385,13 @@ class ContentRelease:
             raise RuntimeError(f"No installable RPMs found in {build_files_dir}")
 
         rpm_paths = " ".join(str(rpm.absolute()) for rpm in install_rpms)
-        # Remove libtraceevent first to avoid file conflicts with perf package
-        install_cmd = (
-            f"sudo dnf remove -y libtraceevent || true && sudo dnf install --skip-broken --allowerasing {rpm_paths} -y"
-        )
-        # install_cmd = f"sudo dnf clean all && sudo dnf install --skip-broken --allowerasing {rpm_paths} -y"
+        if pkg_mgr == "yum":
+            install_cmd = f"sudo yum install -y {rpm_paths}"
+        else:
+            install_cmd = (
+                f"sudo dnf remove -y libtraceevent || true && "
+                f"sudo dnf install --skip-broken --allowerasing {rpm_paths} -y"
+            )
 
         install_log = kernel_workspace_obj.folder.absolute() / "install.log"
         logging.info(f"Installing {len(install_rpms)} RPM(s)")
@@ -449,11 +466,12 @@ class ContentRelease:
             raise RuntimeError(f"Kernel version mismatch! Expected: {expected_version}, Running: {kernel_version}")
         logging.info("Verified VM is running the newly installed kernel")
 
-        # Run kselftests using the installed kselftests
-        kselftest_log = kernel_workspace_obj.folder.absolute() / f"selftest-{kernel_version}.log"
-        vm_instance.kselftests_internal(kselftest_log)
-
-        # Count passed tests
-        vm_instance.count_kselftest_passed(kselftest_log)
+        # Run kselftests using the installed kselftests (not available on CentOS 7)
+        if pkg_mgr == "yum":
+            logging.info("Skipping kselftests (not available on CentOS 7)")
+        else:
+            kselftest_log = kernel_workspace_obj.folder.absolute() / f"selftest-{kernel_version}.log"
+            vm_instance.kselftests_internal(kselftest_log)
+            vm_instance.count_kselftest_passed(kselftest_log)
 
         logging.info("Test step completed successfully")

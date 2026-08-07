@@ -15,6 +15,10 @@ ssh_pwauth: true
 # Ensure the system does not update on boot.
 package_upgrade: False
 
+# Create mount point before mounts module runs
+bootcmd:
+  - mkdir -p SHARED_DIR_PLACEHOLDER
+
 mounts:
   - - NFS_SOURCE_PLACEHOLDER
     - SHARED_DIR_PLACEHOLDER
