@@ -179,6 +179,14 @@ def manage_commit_message(full_sha, ciq_tags, jira_ticket, commit_successful):
     except IOError as e:
         raise RuntimeError(f"Failed to read commit message from {MERGE_MSG}: {e}") from e
 
+    # git appends a "# Conflicts:" comment block to MERGE_MSG on a conflicted
+    # cherry-pick, and committing with -F doesn't strip comment lines. Drop the
+    # block to keep it out of the final commit message.
+    for i, line in enumerate(original_msg):
+        if line.rstrip("\n") == "# Conflicts:":
+            original_msg = original_msg[:i]
+            break
+
     optional_msg = "" if commit_successful else "upstream-diff |"
     new_msg = CIQ_cherry_pick_commit_standardization(
         original_msg, full_sha, jira=jira_ticket, tags=new_tags, optional_msg=optional_msg
