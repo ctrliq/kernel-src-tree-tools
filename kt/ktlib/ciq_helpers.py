@@ -134,8 +134,8 @@ def CIQ_cherry_pick_commit_standardization(lines, commit, tags=None, jira="", op
     # will atttempt to read these lines and email everyone on the list.  We do not want
     # to annoy the community when doing our own work.
     for i in range(5, len(lines)):
-        # The (cherry Picked from commit: <sha1>) line is the indicator we cherry-picked
-        if lines[i].startswith("cherry picked from commit"):
+        # The (cherry picked from commit <sha1>) line is the indicator we cherry-picked
+        if lines[i].lstrip().startswith("(cherry picked from commit"):
             break
         if (
             lines[i].startswith("Signed-off-by")
