@@ -44,6 +44,26 @@ class KernelInfo:
     os_variant: str | None = None
     use_nfs: bool = False
     overridden: bool = False
+    use_worktree: bool | None = None
+
+    def should_use_worktree(self, config: Config, cli_value=None) -> bool:
+        ret = True
+        if cli_value is not None:
+            ret = cli_value
+        elif self.use_worktree is not None:
+            ret = self.use_worktree
+        else:
+            ret = config.use_worktrees
+
+        if self.os_variant == "centos7" and ret is True:
+            logging.warning(
+                "CentOS 7 does not support worktrees internally.\n"
+                "Please check your configs:\n"
+                f"- cli_value: {cli_value}\n"
+                f"- local use_worktree: {self.use_worktree}\n"
+                f"- config value: {config.use_worktrees}"
+            )
+        return ret
 
 
 @dataclass

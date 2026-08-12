@@ -73,6 +73,46 @@ kernel_overrides:
 ```bash
 $ kt setup
 ```
+### Disable Worktrees
+By default, kt will use git worktrees to checkout the kernel source and
+appropriate dist-git repo. If you don't want to use worktrees you have several
+options.  Each option below will override the previous one, so if you turn off
+worktrees at the kt config level you can turn them on for specific kernels later
+by setting in the .private_repos.yaml or on the command line.
+
+NOTE: By default CentOS7 worktree is turned off due to git inside the CentOS7
+VM is too old to support worktrees.  You can enable it if you want, but note
+that this is a limitation of the VM.
+
+1. Set the global config variable.
+```bash
+{
+  "base_path": "~/workspace/kt_test",
+  "kernels_dir": "~/workspace/kt_test/kernels",
+  "images_source_dir": "~/workspace/kt_test/images_source",
+  "images_dir": "~/workspace/kt_test/images",
+  "ssh_key": "~/.ssh/test.pub",
+  "user": "USER",
+  "use_worktrees": false
+}
+```
+
+2. Set the per kernel config in the .private_repos.yaml file.
+```yaml
+kernel_overrides:
+    lts-9.2:
+        dist_git_branch: <private_branch>
+        dist_git_root: dist-git-tree-lts
+        use_worktree: false
+```
+
+3. CLI command line override. This will override the global and per kernel
+config.  However you will need to use this option for every command that uses
+every time for that kernel version.
+```bash
+$ kt checkout lts-9.2 --no-worktree
+```
+
 ## Implementation details:
 
 kt/ktlib is the place for common helpers that would be used for kt commands.

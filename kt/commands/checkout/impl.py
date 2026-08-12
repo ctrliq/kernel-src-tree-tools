@@ -7,14 +7,17 @@ from kt.ktlib.kernel_workspace import KernelWorkspace
 from kt.ktlib.kernels import KernelsInfo
 
 
-def main(name: str, change_dir: bool, cleanup: bool, override: bool, extra: str):
+def main(name: str, change_dir: bool, cleanup: bool, override: bool, use_worktree: bool | None, extra: str):
     config = Config.load()
     kernels = KernelsInfo.from_yaml(config=config).kernels
     if name not in kernels:
         raise ValueError(f"Invalid param: {name} does not exist")
 
     kernel_info = kernels[name]
-    kernel_workspace = KernelWorkspace.load(name=name, config=config, kernel_info=kernel_info, extra=extra)
+    resolved = kernel_info.should_use_worktree(config=config, cli_value=use_worktree)
+    kernel_workspace = KernelWorkspace.load(
+        name=name, config=config, kernel_info=kernel_info, use_worktree=resolved, extra=extra
+    )
     if cleanup:
         kernel_workspace.cleanup()
         return
