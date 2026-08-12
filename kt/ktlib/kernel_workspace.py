@@ -16,6 +16,7 @@ class RepoWorktree:
     remote: str
     remote_branch: str
     local_branch: str
+    use_worktree: bool = True
 
     @classmethod
     def load_from_filepath(cls, folder: Path):
@@ -38,14 +39,51 @@ class RepoWorktree:
             remote=remote,
             remote_branch=remote_branch,
             local_branch=local_branch,
+            use_worktree=(folder / ".git").is_file(),
         )
+
+    @staticmethod
+    def detect_repo_disk_mode(directory) -> bool | None:
+        """
+        Static method to work out if a .git exists in directory.
+        If the .git is a file its a part of a worktree representation
+        else a directory is a pure clone.
+        Return
+          True  - Git WorkTree
+          False - Git Clone Repo
+          None  - NOT a git repo
+        """
+        git_path = directory / ".git"
+        if git_path.is_file():
+            return True
+        if git_path.is_dir():
+            return False
+        return None
 
     def setup(self):
         """
-        First run: It will create the worktree
-        Second run: It will update the worktree
+        First run: It will create the worktree / clone
+        Second run: It will update the worktree / clone
         """
 
+        if self.folder.exists():
+            disk_mode = self.detect_repo_disk_mode(self.folder)
+            if disk_mode is None or disk_mode != self.use_worktree:
+                disk_label = "worktree" if disk_mode else "clone" if disk_mode is False else "unknown"
+                requested_label = "worktree" if self.use_worktree else "clone"
+                raise RuntimeError(
+                    f"Mode mismatch for {self.folder}:\n"
+                    f"  On disk: {disk_label}\n"
+                    f"  Requested: {requested_label}\n"
+                    "To switch modes, clean up first then re-checkout:\n"
+                    f"  kt checkout <kernel> --cleanup\n"
+                    f"  kt checkout <kernel> --{'worktree' if self.use_worktree else 'no-worktree'}"
+                )
+            self.update()
+            return
+        self._setup_worktree() if self.use_worktree else self._setup_clone()
+
+    def _setup_worktree(self):
         try:
             remote_ref = f"{self.remote}/{self.remote_branch}"
             self.source_root.git.worktree(
@@ -65,6 +103,18 @@ class RepoWorktree:
                 self.cleanup()
                 raise e
 
+    def _setup_clone(self):
+        try:
+            logging.info(f"Cloning Full Repo {self.source_root.remotes.origin.url} to {self.folder}")
+            repo = Repo.clone_from(url=self.source_root.remotes.origin.url, to_path=self.folder, no_checkout=True)
+            repo_ref = f"origin/{self.remote_branch}"
+            logging.info(f"Checking out {self.local_branch} tracking to {repo_ref}")
+            repo.git.checkout("-b", self.local_branch, "--track", repo_ref)
+
+        except GitCommandError as e:
+            self.cleanup()
+            raise e
+
     def update(self):
         """
         It will make sure the worktree is up-to-date with remote.
@@ -76,6 +126,15 @@ class RepoWorktree:
         repo.remotes.origin.pull(rebase=True)
 
     def cleanup(self):
+        disk_mode = self.detect_repo_disk_mode(self.folder)
+        if disk_mode is True:
+            self._cleanup_worktree()
+            return
+
+        logging.info(f"Removing Local Clone for {self.folder}")
+        self.folder.rmtree(ignore_errors=True)
+
+    def _cleanup_worktree(self):
         # remove worktree, only if it exists
         try:
             self.source_root.git.worktree("remove", self.folder, "-f")
@@ -165,7 +224,7 @@ class KernelWorkspace:
         return workspace
 
     @classmethod
-    def load(cls, name: str, config: Config, kernel_info: KernelInfo, extra: str):
+    def load(cls, name: str, config: Config, kernel_info: KernelInfo, use_worktree: bool, extra: str):
         if extra:
             name = name + "_" + extra
 
@@ -184,6 +243,7 @@ class KernelWorkspace:
             remote=default_remote,
             remote_branch=kernel_info.dist_git_branch,
             local_branch=dist_local_branch,
+            use_worktree=use_worktree,
         )
 
         src_folder = folder / Path(Constants.SRC_TREE)
@@ -197,6 +257,7 @@ class KernelWorkspace:
             remote=default_remote,
             remote_branch=kernel_info.src_tree_branch,
             local_branch=src_local_branch,
+            use_worktree=use_worktree,
         )
 
         return cls(

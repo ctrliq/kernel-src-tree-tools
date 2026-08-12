@@ -163,3 +163,98 @@ def test_kernels_vm_image_url_present():
     kernels_info = KernelsInfo.from_dict(data=data_with_pin, private_data={}, config=config)
     kernel_info = list(kernels_info.kernels.values())[0]
     assert kernel_info.vm_image_url == pinned_url
+
+
+# --- use_worktree field ---
+
+
+def test_kernels_use_worktree_default_none():
+    config = Config.from_str_dict(Config.DEFAULT)
+    kernels_info = KernelsInfo.from_dict(data=data, private_data={}, config=config)
+    kernel_info = list(kernels_info.kernels.values())[0]
+    assert kernel_info.use_worktree is None
+
+
+def test_kernels_use_worktree_parsed_from_dict():
+    kernels_with_flag = {
+        "kernel1": {
+            **kernels["kernel1"],
+            "use_worktree": False,
+        }
+    }
+    data_with_flag = {"common_repos": common_repos, "kernels": kernels_with_flag}
+    config = Config.from_str_dict(Config.DEFAULT)
+
+    kernels_info = KernelsInfo.from_dict(data=data_with_flag, private_data={}, config=config)
+    kernel_info = list(kernels_info.kernels.values())[0]
+    assert kernel_info.use_worktree is False
+
+
+def test_kernels_use_worktree_settable_via_overrides():
+    config = Config.from_str_dict(Config.DEFAULT)
+    overrides = {"kernel1": {"use_worktree": False}}
+
+    kernels_info = KernelsInfo.from_dict(data=data, private_data={}, config=config, kernel_overrides=overrides)
+    kernel_info = list(kernels_info.kernels.values())[0]
+    assert kernel_info.use_worktree is False
+
+
+# --- should_use_worktree precedence ---
+
+
+def test_should_use_worktree_cli_wins():
+    config = Config.from_str_dict({**Config.DEFAULT, "use_worktrees": True})
+    kernels_with_flag = {"kernel1": {**kernels["kernel1"], "use_worktree": True}}
+    data_with_flag = {"common_repos": common_repos, "kernels": kernels_with_flag}
+
+    kernels_info = KernelsInfo.from_dict(data=data_with_flag, private_data={}, config=config)
+    kernel_info = list(kernels_info.kernels.values())[0]
+    assert kernel_info.should_use_worktree(config=config, cli_value=False) is False
+
+
+def test_should_use_worktree_per_kernel_over_global():
+    config = Config.from_str_dict({**Config.DEFAULT, "use_worktrees": True})
+    kernels_with_flag = {"kernel1": {**kernels["kernel1"], "use_worktree": False}}
+    data_with_flag = {"common_repos": common_repos, "kernels": kernels_with_flag}
+
+    kernels_info = KernelsInfo.from_dict(data=data_with_flag, private_data={}, config=config)
+    kernel_info = list(kernels_info.kernels.values())[0]
+    assert kernel_info.should_use_worktree(config=config) is False
+
+
+def test_should_use_worktree_global_fallback():
+    config = Config.from_str_dict({**Config.DEFAULT, "use_worktrees": False})
+
+    kernels_info = KernelsInfo.from_dict(data=data, private_data={}, config=config)
+    kernel_info = list(kernels_info.kernels.values())[0]
+    # kernel1 has no use_worktree set, so falls through to global
+    assert kernel_info.should_use_worktree(config=config) is False
+
+
+def test_should_use_worktree_default_true():
+    config = Config.from_str_dict(Config.DEFAULT)
+
+    kernels_info = KernelsInfo.from_dict(data=data, private_data={}, config=config)
+    kernel_info = list(kernels_info.kernels.values())[0]
+    assert kernel_info.should_use_worktree(config=config) is True
+
+
+def test_should_use_worktree_centos7_warns(caplog):
+    kernels_centos7 = {
+        "kernel1": {
+            **kernels["kernel1"],
+            "os_variant": "centos7",
+        }
+    }
+    data_centos7 = {"common_repos": common_repos, "kernels": kernels_centos7}
+    config = Config.from_str_dict(Config.DEFAULT)
+
+    kernels_info = KernelsInfo.from_dict(data=data_centos7, private_data={}, config=config)
+    kernel_info = list(kernels_info.kernels.values())[0]
+
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        result = kernel_info.should_use_worktree(config=config)
+    assert result is True
+    assert "CentOS 7" in caplog.text

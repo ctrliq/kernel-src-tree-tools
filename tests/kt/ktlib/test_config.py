@@ -139,3 +139,55 @@ def test_config_load_from_json_proper_ssh_key():
 def test_config_load_from_json_proper_user():
     config = Config.from_json(CONFIG_STR)
     assert config.user == "testuser"
+
+
+def test_config_use_worktrees_default_true():
+    config = Config.from_json(CONFIG_STR)
+    assert config.use_worktrees is True
+
+
+def test_config_use_worktrees_false():
+    json_data = (
+        "{"
+        '"base_path": "~/ciq",'
+        '"kernels_dir": "~/ciq/kernels",'
+        '"images_source_dir": "~/ciq/default_test_images",'
+        '"images_dir": "~/ciq/tmp/virt-images",'
+        '"ssh_key": "~/ciq/id_ed25519_generic.pub",'
+        '"user": "testuser",'
+        '"use_worktrees": false'
+        "}"
+    )
+    config = Config.from_json(json_data)
+    assert config.use_worktrees is False
+
+
+def test_config_use_worktrees_non_bool_raises():
+    json_data = (
+        "{"
+        '"base_path": "~/ciq",'
+        '"kernels_dir": "~/ciq/kernels",'
+        '"images_source_dir": "~/ciq/default_test_images",'
+        '"images_dir": "~/ciq/tmp/virt-images",'
+        '"ssh_key": "~/ciq/id_ed25519_generic.pub",'
+        '"user": "testuser",'
+        '"use_worktrees": "false"'
+        "}"
+    )
+    with pytest.raises(ValueError, match="use_worktrees"):
+        Config.from_json(json_data)
+
+
+def test_config_use_worktrees_not_required():
+    json_data = (
+        "{"
+        '"base_path": "~/ciq",'
+        '"kernels_dir": "~/ciq/kernels",'
+        '"images_source_dir": "~/ciq/default_test_images",'
+        '"images_dir": "~/ciq/tmp/virt-images",'
+        '"ssh_key": "~/ciq/id_ed25519_generic.pub",'
+        '"user": "testuser"'
+        "}"
+    )
+    config = Config.from_json(json_data)
+    assert config.use_worktrees is True

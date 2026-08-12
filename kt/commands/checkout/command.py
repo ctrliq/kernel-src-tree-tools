@@ -35,6 +35,10 @@ $ kt checkout lts-9.2 --cleanup --change-dir
 \b
 $ kt checkout lts-9.2 -e CVE-2022-49909
 Will create folder lts-9.2_CVE-2022-49909 instead of lts-9.2.
+\b
+$ kt checkout cbr-7.9 --no-worktree
+Will not create worktrees for CentOS7 bridge.
+Note: This is recommended because the git version in the CentOS7 VM is too old to support worktrees.
 """
 
 
@@ -61,12 +65,19 @@ Will create folder lts-9.2_CVE-2022-49909 instead of lts-9.2.
     type=str,
     help="Feature you'll be working on",
 )
+@click.option(
+    "--worktree/--no-worktree",
+    "use_worktree",
+    default=None,
+    help="Manually override config worktree configuration for kernel.",
+)
 @click.argument("kernel", required=True, type=str, shell_complete=ShellCompletion.show_kernels)
-def checkout(kernel, change_dir, override, cleanup, extra):
+def checkout(kernel, change_dir, override, cleanup, extra, use_worktree):
     main(
         name=kernel,
         change_dir=change_dir,
         override=override,
         cleanup=cleanup,
+        use_worktree=use_worktree,
         extra=extra,
     )

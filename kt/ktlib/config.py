@@ -34,6 +34,8 @@ class Config:
     ssh_key: Path
     user: str
 
+    use_worktrees: bool = True
+
     DEFAULT: ClassVar = {
         "base_path": "~/ciq",
         "kernels_dir": "~/ciq/kernels",
@@ -41,6 +43,7 @@ class Config:
         "images_dir": "~/ciq/tmp/virt-images",
         "ssh_key": "~/.ssh/id_ed25519_generic.pub",
         "user": os.environ["USER"],
+        "use_worktrees": True,
     }
 
     REQUIRED_KEYS: ClassVar = {"base_path", "kernels_dir", "images_source_dir", "images_dir", "ssh_key"}
@@ -59,10 +62,14 @@ class Config:
             data = {**data, "user": os.environ["USER"]}
 
         # Transform the str values to Path except for user
-        non_path_keys = {"user"}
+        non_path_keys = {"user", "use_worktrees"}
         new_data = {k: (Path(v).expanduser() if k not in non_path_keys else v) for k, v in data.items()}
         if not all(v.is_absolute() for k, v in new_data.items() if k not in non_path_keys):
             raise ValueError("all paths should be absolute; check your config")
+        use_worktrees = new_data.get("use_worktrees", None)
+        if use_worktrees is not None:
+            if not isinstance(use_worktrees, bool):
+                raise ValueError(f"use_worktrees expected Boolean value got [{use_worktrees}]")
 
         return cls(**new_data)
 
