@@ -521,10 +521,14 @@ def _read_spec_define(spec_lines, name, value_pattern):
 def read_spec_el_version(spec_lines):
     """Read the EL version number from spec file lines.
 
-    Returns the el_version string (e.g., '9').
-    Raises ValueError if not found.
+    Returns the el_version string (e.g., '9'), or None if %define el_version
+    is not present in the spec or its value does not match the expected
+    numeric pattern.
     """
-    return _read_spec_define(spec_lines, "el_version", r"\d+")
+    try:
+        return _read_spec_define(spec_lines, "el_version", r"\d+")
+    except ValueError:
+        return None
 
 
 FIPS_PROTECTED_DIRECTORIES = [

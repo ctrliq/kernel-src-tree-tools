@@ -112,15 +112,9 @@ def update_spec_file(
     """
     spec = _read_spec_file(spec_path)
 
-    # Extract el_version from spec file
-    try:
-        el_version = read_spec_el_version(spec)
-    except ValueError as e:
-        print(f"ERROR: {e}")
-        sys.exit(1)
-
-    # Construct dist string from el_version for changelog
-    dist = f".el{el_version}"
+    # Construct dist string from el_version for changelog (omit if not defined)
+    el_version = read_spec_el_version(spec)
+    dist = f".el{el_version}" if el_version else ""
 
     # Get git user info, checking both repo-level and global config
     try:
@@ -210,14 +204,9 @@ def bump_spec_file(
 
     spec = _read_spec_file(spec_path)
 
-    # Extract el_version from spec file
-    try:
-        el_version = read_spec_el_version(spec)
-    except ValueError as e:
-        print(f"ERROR: {e}")
-        sys.exit(1)
-
-    dist = f".el{el_version}"
+    # Construct dist string from el_version for changelog (omit if not defined)
+    el_version = read_spec_el_version(spec)
+    dist = f".el{el_version}" if el_version else ""
 
     # Get git user info
     try:
