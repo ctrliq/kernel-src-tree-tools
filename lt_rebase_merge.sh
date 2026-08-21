@@ -4,7 +4,6 @@ set -x
 PR_BRANCH=$1
 TARGET_BRANCH=$2
 NEXT_BRANCH="$2-next"
-NVR_REGEX="[0-9]*\.[0-9]*\.[0-9]*"
 
 if [ -z "$PR_BRANCH" ] || [ -z "$TARGET_BRANCH" ]; then
   echo "Usage: $0 <pr_branch> <target_branch>"
@@ -31,16 +30,19 @@ if [ $? -ne 0 ] ; then
 fi
 
 
-#collect all static data fire before making alterations to the local and remote repositories
-PAST_VERSION=$(git describe --tags --abbrev=0 "${TARGET_BRANCH}" | awk -F '-' '{print $2}')
+makefile_version() {
+  local makefile
+  makefile=$(git show "$1:Makefile") || return 1
+  local major minor sublevel
+  major=$(echo "$makefile" | sed -n 's/^VERSION = //p')
+  minor=$(echo "$makefile" | sed -n 's/^PATCHLEVEL = //p')
+  sublevel=$(echo "$makefile" | sed -n 's/^SUBLEVEL = //p')
+  [ -n "$major" ] && [ -n "$minor" ] && [ -n "$sublevel" ] && echo "${major}.${minor}.${sublevel}"
+}
+
+PAST_VERSION=$(makefile_version "${TARGET_BRANCH}")
 if [ -z "$PAST_VERSION" ]; then
-  echo "Failed to get a CIQ Tag from ${TARGET_BRANCH}."
-  echo "LastTag: $(git describe --tags --abbrev=0 "${TARGET_BRANCH}")"
-  exit 1
-fi
-# Check if PAST_VERSION matches the regex
-if ! [[ $PAST_VERSION =~ $NVR_REGEX ]]; then # check if PAST_VERSION matches the regex
-  echo "PAST_VERSION: ${PAST_VERSION} does not match the regex ${NVR_REGEX}"
+  echo "Failed to read kernel version from Makefile on ${TARGET_BRANCH}"
   exit 1
 fi
 
@@ -48,18 +50,19 @@ PAST_VERSION_BRANCH="ciq-${PAST_VERSION}"
 echo "PAST_VERSION: $PAST_VERSION"
 echo "PAST_VERSION_BRANCH: $PAST_VERSION_BRANCH"
 
-NEW_GKH_TAG=$(git describe --tags --abbrev=0 "${PR_BRANCH}" | sed 's/^.//g')
-if [ -z "$NEW_GKH_TAG" ]; then
-  echo "Failed to get a GKH Tag from ${PR_BRANCH}."
-  echo "LastTag: $(git describe --tags --abbrev=0 "${PR_BRANCH}")"
+NEW_VERSION=$(makefile_version "${PR_BRANCH}")
+if [ -z "$NEW_VERSION" ]; then
+  echo "Failed to read kernel version from Makefile on ${PR_BRANCH}"
   exit 1
 fi
-# Check if NEW_GKH_TAG matches the regex
-if ! [[ $NEW_GKH_TAG =~ $NVR_REGEX ]]; then # check if NEW_GKH_TAG matches the regex
-  echo "NEW_GKH_TAG: ${NEW_GKH_TAG} does not match the regex ${NVR_REGEX}"
+
+LAST_TAG=$(git describe --tags --abbrev=0 "${TARGET_BRANCH}")
+if [ -z "$LAST_TAG" ]; then
+  echo "Failed to get tag from ${TARGET_BRANCH}"
   exit 1
 fi
-NEW_CIQ_TAG="ciq_kernel-${NEW_GKH_TAG}-1"
+TAG_PREFIX=$(echo "$LAST_TAG" | awk -F '-' '{print $1}')
+NEW_CIQ_TAG="${TAG_PREFIX}-${NEW_VERSION}-1"
 # merge PR branch into next branch
 set +x
 
