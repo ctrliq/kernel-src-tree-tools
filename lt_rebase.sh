@@ -1,29 +1,21 @@
 #!/bin/bash
 set -x
 
+KERNEL_MAJOR=$(sed -n 's/^VERSION = //p' Makefile)
+KERNEL_MINOR=$(sed -n 's/^PATCHLEVEL = //p' Makefile)
+if [ -z "$KERNEL_MAJOR" ] || [ -z "$KERNEL_MINOR" ]; then
+    echo "Failed to read kernel version from Makefile"
+    exit 1
+fi
+KERNEL_VERSION="${KERNEL_MAJOR}.${KERNEL_MINOR}"
+echo "Detected kernel version: $KERNEL_VERSION"
+
 UPSTREAM_REF=$1
 if [ -z "$UPSTREAM_REF" ]; then
-    UPSTREAM_REF="stable_6.12.y"
+    UPSTREAM_REF="stable_${KERNEL_VERSION}.y"
     echo "UPSTREAM_REF not set, defaulting to $UPSTREAM_REF"
 fi
 
-# Validate UPSTREAM_REF format to prevent shell injection
-if [[ ! "$UPSTREAM_REF" =~ ^stable_[0-9]+\.[0-9]+\.y$ ]]; then
-    echo "Invalid UPSTREAM_REF format: $UPSTREAM_REF"
-    echo "Expected format: stable_X.Y.y (e.g., stable_6.12.y)"
-    exit 1
-fi
-
-# Extract kernel version from UPSTREAM_REF (e.g., stable_6.12.y -> 6.12)
-KERNEL_VERSION=$(echo "$UPSTREAM_REF" | sed -E 's/.*_([0-9]+\.[0-9]+)\.y/\1/')
-if [ -z "$KERNEL_VERSION" ]; then
-    echo "Failed to extract kernel version from UPSTREAM_REF: $UPSTREAM_REF"
-    echo "Expected format: stable_X.Y.y (e.g., stable_6.12.y)"
-    exit 1
-fi
-echo "Detected kernel version: $KERNEL_VERSION"
-
-# Define branch names based on kernel version
 CIQ_BASE_BRANCH="ciq-${KERNEL_VERSION}.y"
 CIQ_NEXT_BRANCH="ciq-${KERNEL_VERSION}.y-next"
 CIQ_TMP_BRANCH="{automation_tmp}_ciq-${KERNEL_VERSION}.y-next"
