@@ -252,10 +252,12 @@ def test_wait_for_cloud_init_success(mock_ssh_run):
     )
 
 
+@patch("kt.ktlib.vm.VmCommand.start")
+@patch("kt.ktlib.vm.VirtHelper.is_running", return_value=True)
 @patch("kt.ktlib.vm.time.sleep")
 @patch("kt.ktlib.vm.SshCommand.run")
-def test_wait_for_cloud_init_reboot_recovery(mock_ssh_run, mock_sleep):
-    """cloud-init reboots the VM, then SSH comes back."""
+def test_wait_for_cloud_init_reboot_recovery(mock_ssh_run, mock_sleep, mock_is_running, mock_start):
+    """cloud-init reboots the VM, VM comes back on its own, SSH comes back."""
     mock_ssh_run.side_effect = [
         RuntimeError("Connection to 192.168.122.10 closed by remote host."),
         None,  # _wait_for_ssh -> "true" succeeds
@@ -274,6 +276,29 @@ def test_wait_for_cloud_init_reboot_recovery(mock_ssh_run, mock_sleep):
         command=["true"],
         ssh_key="/tmp/fake_key",
     )
+    # VM was running after reboot, so start() should not be called
+    mock_start.assert_not_called()
+
+
+@patch("kt.ktlib.vm.VmCommand.start")
+@patch("kt.ktlib.vm.VirtHelper.is_running", side_effect=[False, True])
+@patch("kt.ktlib.vm.time.sleep")
+@patch("kt.ktlib.vm.SshCommand.run")
+def test_wait_for_cloud_init_reboot_vm_shut_off(mock_ssh_run, mock_sleep, mock_is_running, mock_start):
+    """cloud-init reboots, VM ends up shut off — start() called before waiting for SSH."""
+    mock_ssh_run.side_effect = [
+        RuntimeError("Connection to 192.168.122.10 closed by remote host."),  # cloud-init --wait
+        None,  # _wait_for_ssh -> "true" succeeds
+    ]
+    inst = _make_vm_instance()
+    inst.wait_for_cloud_init()
+
+    # VM was not running after reboot, so start() should have been called once
+    # (second is_running check in _wait_for_ssh returns True, so no second start)
+    mock_start.assert_called_once_with(vm_name="lts-9.2")
+    # REBOOT_WAIT sleep + STARTUP_WAIT sleep (from start path)
+    mock_sleep.assert_any_call(Constants.VM_REBOOT_WAIT_SECONDS)
+    mock_sleep.assert_any_call(Constants.VM_STARTUP_WAIT_SECONDS)
 
 
 @patch("kt.ktlib.vm.SshCommand.run")
@@ -284,3 +309,76 @@ def test_wait_for_cloud_init_other_error_raises(mock_ssh_run):
 
     with pytest.raises(RuntimeError, match="Permission denied"):
         inst.wait_for_cloud_init()
+
+
+# ---------------------------------------------------------------------------
+# _wait_for_ssh — VM-start logic added in the fix
+# ---------------------------------------------------------------------------
+
+
+@patch("kt.ktlib.vm.VmCommand.start")
+@patch("kt.ktlib.vm.VirtHelper.is_running", return_value=False)
+@patch("kt.ktlib.vm.time.sleep")
+@patch("kt.ktlib.vm.SshCommand.run")
+def test_wait_for_ssh_starts_shut_off_vm(mock_ssh_run, mock_sleep, mock_is_running, mock_start):
+    """_wait_for_ssh calls VmCommand.start when VM is not running, then SSH succeeds."""
+    mock_ssh_run.return_value = ""  # SSH succeeds on first attempt
+    inst = _make_vm_instance()
+    inst._wait_for_ssh()
+
+    mock_is_running.assert_called_once_with(vm_name="lts-9.2")
+    mock_start.assert_called_once_with(vm_name="lts-9.2")
+    mock_ssh_run.assert_called_once_with(
+        domain="testuser@192.168.122.10",
+        command=["true"],
+        ssh_key="/tmp/fake_key",
+    )
+
+
+@patch("kt.ktlib.vm.VmCommand.start")
+@patch("kt.ktlib.vm.VirtHelper.is_running", return_value=True)
+@patch("kt.ktlib.vm.time.sleep")
+@patch("kt.ktlib.vm.SshCommand.run")
+def test_wait_for_ssh_skips_start_when_vm_running(mock_ssh_run, mock_sleep, mock_is_running, mock_start):
+    """_wait_for_ssh does not call VmCommand.start when VM is already running."""
+    mock_ssh_run.return_value = ""  # SSH succeeds on first attempt
+    inst = _make_vm_instance()
+    inst._wait_for_ssh()
+
+    mock_is_running.assert_called_once_with(vm_name="lts-9.2")
+    mock_start.assert_not_called()
+
+
+@patch("kt.ktlib.vm.VmCommand.start", side_effect=RuntimeError("Domain is already active"))
+@patch("kt.ktlib.vm.VirtHelper.is_running", side_effect=[False, True])
+@patch("kt.ktlib.vm.time.sleep")
+@patch("kt.ktlib.vm.SshCommand.run", side_effect=[RuntimeError("conn refused"), ""])
+def test_wait_for_ssh_start_race_then_retry(mock_ssh_run, mock_sleep, mock_is_running, mock_start):
+    """_wait_for_ssh swallows RuntimeError from VmCommand.start (race), retries SSH."""
+    inst = _make_vm_instance()
+    inst._wait_for_ssh()
+
+    # start() was called once on first iteration and raised, but exception was swallowed
+    mock_start.assert_called_once_with(vm_name="lts-9.2")
+    # SSH was tried twice: first failed, second succeeded
+    assert mock_ssh_run.call_count == 2
+    # sleep called once (between the failed SSH attempt and the retry)
+    mock_sleep.assert_called_once_with(Constants.VM_POLL_INTERVAL_SECONDS)
+
+
+@patch("kt.ktlib.vm.VmCommand.start")
+@patch("kt.ktlib.vm.VirtHelper.is_running", return_value=False)
+@patch("kt.ktlib.vm.time.sleep")
+@patch("kt.ktlib.vm.SshCommand.run", side_effect=RuntimeError("conn refused"))
+def test_wait_for_ssh_exhausts_attempts(mock_ssh_run, mock_sleep, mock_is_running, mock_start):
+    """_wait_for_ssh raises RuntimeError after exhausting all poll attempts."""
+    inst = _make_vm_instance()
+
+    with pytest.raises(RuntimeError, match="SSH to testuser@192.168.122.10 not available after 300s"):
+        inst._wait_for_ssh()
+
+    # Every attempt checked is_running + tried to start + tried SSH
+    assert mock_is_running.call_count == Constants.VM_POLL_MAX_ATTEMPTS
+    assert mock_start.call_count == Constants.VM_POLL_MAX_ATTEMPTS
+    assert mock_ssh_run.call_count == Constants.VM_POLL_MAX_ATTEMPTS
+    assert mock_sleep.call_count == Constants.VM_POLL_MAX_ATTEMPTS

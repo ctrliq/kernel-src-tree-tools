@@ -393,6 +393,12 @@ class VmInstance:
 
     def _wait_for_ssh(self):
         for attempt in range(Constants.VM_POLL_MAX_ATTEMPTS):
+            if not VirtHelper.is_running(vm_name=self.name):
+                try:
+                    VmCommand.start(vm_name=self.name)
+                except RuntimeError as e:
+                    logging.warning(f"Failed to start VM {self.name}: {e}")
+                    pass
             try:
                 SshCommand.run(domain=self.domain, command=["true"], ssh_key=self.ssh_key)
                 logging.info(f"SSH connection to {self.domain} established")
@@ -418,6 +424,11 @@ class VmInstance:
         except RuntimeError as e:
             if "closed by remote host" in str(e):
                 logging.info("VM rebooted during cloud-init, waiting for it to come back...")
+                time.sleep(Constants.VM_REBOOT_WAIT_SECONDS)
+                if not VirtHelper.is_running(vm_name=self.name):
+                    logging.info(f"VM {self.name} is not running, starting it...")
+                    VmCommand.start(vm_name=self.name)
+                    time.sleep(Constants.VM_STARTUP_WAIT_SECONDS)
                 self._wait_for_ssh()
             else:
                 raise
