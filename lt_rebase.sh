@@ -40,6 +40,12 @@ fi
 CIQ_NEXT_BRANCH="${CIQ_BASE_BRANCH}-next"
 CIQ_TMP_BRANCH="{automation_tmp}_${CIQ_BASE_BRANCH}-next"
 
+if [ "$CIQ_BASE_BRANCH" = "ciq-stable" ]; then
+    TAG_PREFIX="clkstable"
+else
+    TAG_PREFIX="ciq"
+fi
+
 git fetch --all
 git show-ref --verify --quiet "refs/remotes/origin/${UPSTREAM_REF}"
 if [ $? -ne 0 ]; then
@@ -231,6 +237,7 @@ if [ -n "$SPEC_FILE" ]; then
         --srcgit . \
         --spec-file "$SPEC_FILE" \
         --buildid "$BUILDID" \
+        --tag-prefix "$TAG_PREFIX" \
         --commit
 
     if [ $? -ne 0 ]; then
