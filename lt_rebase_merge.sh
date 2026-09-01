@@ -32,10 +32,11 @@ fi
 
 
 #collect all static data fire before making alterations to the local and remote repositories
-PAST_VERSION=$(git describe --tags --abbrev=0 "${TARGET_BRANCH}" | awk -F '-' '{print $2}')
+LAST_TAG=$(git describe --tags --abbrev=0 "${TARGET_BRANCH}")
+PAST_VERSION=$(echo "$LAST_TAG" | sed -E 's/.*_kernel-([0-9]+\.[0-9]+\.[0-9]+)-.*/\1/')
 if [ -z "$PAST_VERSION" ]; then
   echo "Failed to get a CIQ Tag from ${TARGET_BRANCH}."
-  echo "LastTag: $(git describe --tags --abbrev=0 "${TARGET_BRANCH}")"
+  echo "LastTag: $LAST_TAG"
   exit 1
 fi
 # Check if PAST_VERSION matches the regex
@@ -44,7 +45,13 @@ if ! [[ $PAST_VERSION =~ $NVR_REGEX ]]; then # check if PAST_VERSION matches the
   exit 1
 fi
 
-PAST_VERSION_BRANCH="ciq-${PAST_VERSION}"
+if [ "$TARGET_BRANCH" = "ciq-stable" ]; then
+  PAST_VERSION_BRANCH="ciq-stable-${PAST_VERSION}"
+  TAG_PREFIX="clkstable"
+else
+  PAST_VERSION_BRANCH="ciq-${PAST_VERSION}"
+  TAG_PREFIX="ciq"
+fi
 echo "PAST_VERSION: $PAST_VERSION"
 echo "PAST_VERSION_BRANCH: $PAST_VERSION_BRANCH"
 
@@ -59,7 +66,7 @@ if ! [[ $NEW_GKH_TAG =~ $NVR_REGEX ]]; then # check if NEW_GKH_TAG matches the r
   echo "NEW_GKH_TAG: ${NEW_GKH_TAG} does not match the regex ${NVR_REGEX}"
   exit 1
 fi
-NEW_CIQ_TAG="ciq_kernel-${NEW_GKH_TAG}-1"
+NEW_CIQ_TAG="${TAG_PREFIX}_kernel-${NEW_GKH_TAG}-1"
 # merge PR branch into next branch
 set +x
 
