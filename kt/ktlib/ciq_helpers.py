@@ -407,15 +407,16 @@ def get_git_user(repo):
 
 
 def parse_ciq_tag_release(tag):
-    """Extract the release counter N from a CIQ tag like 'ciq_kernel-6.18.21-1'.
+    """Extract the release counter N from a CIQ tag like 'ciq_kernel-6.18.21-1'
+    or 'clkstable_kernel-7.1.4-1'.
 
     Returns the integer N.
-    Raises ValueError if the tag is not in ciq_kernel-X.Y.Z-N format.
+    Raises ValueError if the tag is not in a recognized format.
     """
-    m = re.match(r"^ciq_kernel-\d+\.\d+\.\d+-(\d+)$", tag)
+    m = re.match(r"^(?:ciq|clkstable)_kernel-\d+\.\d+\.\d+-(\d+)$", tag)
     if not m:
         raise ValueError(
-            f"Cannot parse CIQ release from tag: {tag!r} (expected 'ciq_kernel-X.Y.Z-N', e.g. 'ciq_kernel-6.18.21-1')"
+            f"Cannot parse CIQ release from tag: {tag!r} (expected 'ciq_kernel-X.Y.Z-N' or 'clkstable_kernel-X.Y.Z-N')"
         )
     return int(m.group(1))
 
@@ -423,19 +424,21 @@ def parse_ciq_tag_release(tag):
 def parse_kernel_tag(tag):
     """Validate and parse a kernel version tag.
 
-    Accepts: 'v6.12.74', '6.12.74', or 'ciq_kernel-6.12.74-N'.
+    Accepts: 'v6.12.74', '6.12.74', 'ciq_kernel-6.12.74-N', or 'clkstable_kernel-7.1.4-N'.
 
     Returns the version string (e.g., '6.12.74').
     Raises ValueError if the tag format is invalid.
     """
-    m = re.match(r"^ciq_kernel-(\d+\.\d+\.\d+)-\d+$", tag)
+    m = re.match(r"^(?:ciq|clkstable)_kernel-(\d+\.\d+\.\d+)-\d+$", tag)
     if m:
         return m.group(1)
 
     tag_without_v = tag.removeprefix("v")
     tag_parts = tag_without_v.split(".")
     if len(tag_parts) != 3:
-        raise ValueError(f"Invalid kernel tag format: {tag} (expected vX.Y.Z, X.Y.Z, or ciq_kernel-X.Y.Z-N)")
+        raise ValueError(
+            f"Invalid kernel tag format: {tag} (expected vX.Y.Z, X.Y.Z, ciq_kernel-X.Y.Z-N, or clkstable_kernel-X.Y.Z-N)"
+        )
     try:
         for part in tag_parts:
             int(part)
