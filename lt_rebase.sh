@@ -23,10 +23,16 @@ if [ -z "$KERNEL_VERSION" ]; then
 fi
 echo "Detected kernel version: $KERNEL_VERSION"
 
-# Define branch names based on kernel version
-CIQ_BASE_BRANCH="ciq-${KERNEL_VERSION}.y"
-CIQ_NEXT_BRANCH="ciq-${KERNEL_VERSION}.y-next"
-CIQ_TMP_BRANCH="{automation_tmp}_ciq-${KERNEL_VERSION}.y-next"
+# Target branch: use explicit second argument, or derive from upstream ref
+if [ -n "$2" ]; then
+    CIQ_BASE_BRANCH="$2"
+    echo "Using explicit target branch: $CIQ_BASE_BRANCH"
+else
+    CIQ_BASE_BRANCH="ciq-${KERNEL_VERSION}.y"
+    echo "Derived target branch: $CIQ_BASE_BRANCH"
+fi
+CIQ_NEXT_BRANCH="${CIQ_BASE_BRANCH}-next"
+CIQ_TMP_BRANCH="{automation_tmp}_${CIQ_BASE_BRANCH}-next"
 
 git fetch --all
 git show-ref --verify --quiet "refs/remotes/origin/${UPSTREAM_REF}"
