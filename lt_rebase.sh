@@ -154,13 +154,17 @@ if [ ! -z "$REPO_STATUS" ]; then
     git commit -m "[CIQ] $(git describe --tags --abbrev=0) - rebased configs"
 fi
 
-# Check for versioned spec file first, then fall back to kernel.spec
+# Spec file discovery: versioned -> clkstable -> generic
 VERSIONED_SPEC_FILE="./ciq/SPECS/kernel-clk${KERNEL_VERSION}.spec"
+STABLE_SPEC_FILE="./ciq/SPECS/kernel-clkstable.spec"
 GENERIC_SPEC_FILE="./ciq/SPECS/kernel.spec"
 
 if [ -f "$VERSIONED_SPEC_FILE" ]; then
     SPEC_FILE="$VERSIONED_SPEC_FILE"
     echo "Found versioned spec file: $SPEC_FILE"
+elif [ -f "$STABLE_SPEC_FILE" ]; then
+    SPEC_FILE="$STABLE_SPEC_FILE"
+    echo "Found stable spec file: $SPEC_FILE"
 elif [ -f "$GENERIC_SPEC_FILE" ]; then
     SPEC_FILE="$GENERIC_SPEC_FILE"
     echo "Found spec file: $SPEC_FILE"
