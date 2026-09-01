@@ -1,6 +1,12 @@
 #!/bin/bash
 set -x
 
+CHERRY_PICK=false
+if [ "$1" = "--cherry-pick" ]; then
+    CHERRY_PICK=true
+    shift
+fi
+
 UPSTREAM_REF=$1
 if [ -z "$UPSTREAM_REF" ]; then
     UPSTREAM_REF="stable_6.12.y"
@@ -64,20 +70,51 @@ if [ $? -ne 0 ]; then
     echo "Failed to checkout $CIQ_NEXT_BRANCH, please check status of remote and local branches"
     exit 1
 fi
-git checkout "${CIQ_BASE_BRANCH}"
-if [ $? -ne 0 ]; then
-    echo "Failed to checkout $CIQ_BASE_BRANCH, please check status of remote and local branches"
-    exit 1
-fi
-git checkout -b "${CIQ_TMP_BRANCH}"
-if [ $? -ne 0 ]; then
-    echo "Failed to checkout $CIQ_TMP_BRANCH, please check status of remote and local branches"
-    exit 1
-fi
-git rebase "${CIQ_NEXT_BRANCH}"
-if [ $? -ne 0 ]; then
-    echo "Failed to rebase $CIQ_TMP_BRANCH, please check status of remote and local branches"
-    exit 1
+
+if [ "$CHERRY_PICK" = true ]; then
+    # Determine the old upstream from the target branch's Makefile
+    OLD_VERSION=$(git show "${CIQ_BASE_BRANCH}:Makefile" | awk '/^VERSION/{print $3; exit}')
+    OLD_PATCHLEVEL=$(git show "${CIQ_BASE_BRANCH}:Makefile" | awk '/^PATCHLEVEL/{print $3; exit}')
+    OLD_UPSTREAM="stable_${OLD_VERSION}.${OLD_PATCHLEVEL}.y"
+    echo "Old upstream: $OLD_UPSTREAM"
+
+    # CIQ commits are everything on the target branch above the old upstream
+    CIQ_COMMITS=$(git rev-list --reverse "${OLD_UPSTREAM}..${CIQ_BASE_BRANCH}")
+    if [ -z "$CIQ_COMMITS" ]; then
+        echo "No CIQ commits found on ${CIQ_BASE_BRANCH} above ${OLD_UPSTREAM}"
+        exit 1
+    fi
+    echo "Found $(echo "$CIQ_COMMITS" | wc -l) CIQ commits to cherry-pick"
+
+    git checkout -b "${CIQ_TMP_BRANCH}"
+    if [ $? -ne 0 ]; then
+        echo "Failed to checkout $CIQ_TMP_BRANCH, please check status of remote and local branches"
+        exit 1
+    fi
+
+    for commit in $CIQ_COMMITS; do
+        git cherry-pick "$commit"
+        if [ $? -ne 0 ]; then
+            echo "Cherry-pick failed at commit $commit ($(git log --oneline -1 "$commit"))"
+            exit 1
+        fi
+    done
+else
+    git checkout "${CIQ_BASE_BRANCH}"
+    if [ $? -ne 0 ]; then
+        echo "Failed to checkout $CIQ_BASE_BRANCH, please check status of remote and local branches"
+        exit 1
+    fi
+    git checkout -b "${CIQ_TMP_BRANCH}"
+    if [ $? -ne 0 ]; then
+        echo "Failed to checkout $CIQ_TMP_BRANCH, please check status of remote and local branches"
+        exit 1
+    fi
+    git rebase "${CIQ_NEXT_BRANCH}"
+    if [ $? -ne 0 ]; then
+        echo "Failed to rebase $CIQ_TMP_BRANCH, please check status of remote and local branches"
+        exit 1
+    fi
 fi
 
 REPO_STATUS=$(git status -s)
