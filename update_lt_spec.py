@@ -58,12 +58,13 @@ def _set_spec_pkgrelease(line, n):
     return line
 
 
-def calculate_lt_rebase_versions(kernel_version, buildid):
+def calculate_lt_rebase_versions(kernel_version, buildid, tag_prefix="ciq"):
     """Calculate version strings for LT rebase.
 
     Arguments:
     kernel_version: Kernel version string (e.g., '6.12.74')
     buildid: Build ID string (e.g., '.1')
+    tag_prefix: Tag prefix (e.g., 'ciq' or 'clkstable')
 
     Returns:
     Tuple of (full_kernel_version, tag_version, kernel_major_minor, kernel_patch,
@@ -79,7 +80,7 @@ def calculate_lt_rebase_versions(kernel_version, buildid):
     major_version = version_parts[0]
 
     tag_version = f"{kernel_version}-1"
-    new_tag = f"ciq_kernel-{tag_version}"
+    new_tag = f"{tag_prefix}_kernel-{tag_version}"
 
     return kernel_version, tag_version, kernel_major_minor, kernel_patch, buildid, new_tag, major_version
 
@@ -274,7 +275,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--tag",
         action="store_true",
-        help="Create a new git tag after updating the spec (bump mode only); tag format: ciq_kernel-X.Y.Z-(N+1)",
+        help="Create a new git tag after updating the spec (bump mode only); tag format: <prefix>_kernel-X.Y.Z-(N+1)",
+    )
+    parser.add_argument(
+        "--tag-prefix",
+        default="ciq",
+        help="Tag prefix for new tags (default: 'ciq', producing 'ciq_kernel-X.Y.Z-N'; use 'clkstable' for ciq-stable branch)",
     )
     args = parser.parse_args()
 
@@ -332,11 +338,11 @@ if __name__ == "__main__":
         )
         print("Spec file updated successfully")
 
-        new_ciq_tag = f"ciq_kernel-{kernel_version}-{new_n}"
+        new_ciq_tag = f"{args.tag_prefix}_kernel-{kernel_version}-{new_n}"
         commit_message = f"[CIQ] {new_ciq_tag} - updated spec"
     else:
         full_kernel_version, tag_version, kernel_major_minor, kernel_patch, buildid, new_tag, major_version = (
-            calculate_lt_rebase_versions(kernel_version, args.buildid)
+            calculate_lt_rebase_versions(kernel_version, args.buildid, args.tag_prefix)
         )
 
         print("\nLT Rebase Version Information:")
