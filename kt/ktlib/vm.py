@@ -5,7 +5,6 @@ import os
 import time
 from dataclasses import dataclass
 
-import wget
 from git import Repo
 from pathlib3x import Path
 from ruamel.yaml import YAML
@@ -202,7 +201,7 @@ class Vm:
         self.qcow2_source_path.unlink(missing_ok=True)
 
         logging.info(f"Downloading image from {self._get_vm_url()}")
-        wget.download(self._get_vm_url(), out=str(self.qcow2_source_path))
+        LocalCommand.run(command=["curl", "-fL", self._get_vm_url(), "-o", str(self.qcow2_source_path)])
 
     def _is_centos7(self) -> bool:
         return bool(self.os_variant and self.os_variant.startswith("centos7"))
