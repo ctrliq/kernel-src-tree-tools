@@ -8,7 +8,6 @@ dependencies = [
 	"gitpython",
 	"click",
 	"pathlib3x",
-	"python3-wget",
 	"ruamel.yaml",
 	"pyyaml",
 	"pexpect",
