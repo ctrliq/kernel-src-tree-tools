@@ -27,6 +27,7 @@ def make_args(**overrides):
     """argparse.Namespace matching ciq-cherry-pick.py's parser."""
     defaults = dict(
         commit=None,
+        sha=None,
         jira=None,
         ciq_tag=None,
         upstream_ref="origin/kernel-mainline",
@@ -785,3 +786,105 @@ class TestFromArgsparseToCommitHeader:
         assert StubUpstreamRemotes.instances[-1].fetch_mock.call_count == 0
         assert header.commit_source == "centos-stream-9"
         assert header.commit_source_sha is None
+
+
+# ---------------------------------------------------------------------------
+# --sha alias for --commit
+# ---------------------------------------------------------------------------
+
+
+class TestShaAlias:
+    """--sha is accepted as a deprecated alias for --commit.
+
+    Keeps existing callers working, notably kernel-tools'
+    cve_remediation_automation.py which still invokes
+    `ciq-cherry-pick.py --sha <sha> ...`.
+    """
+
+    def _build_parser(self, mod):
+        """Rebuild the script's argument parser (kept close to __main__)."""
+        import argparse
+
+        parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
+        parser.add_argument("--commit", dest="commit", required=False, help="Target SHA1 to cherry-pick")
+        parser.add_argument("--sha", dest="sha", required=False, help="Deprecated alias for --commit")
+        parser.add_argument("--jira")
+        parser.add_argument("--ciq-tag")
+        parser.add_argument("--upstream-ref", default="origin/kernel-mainline")
+        parser.add_argument("--commit-source")
+        parser.add_argument("--commit-source-sha")
+        parser.add_argument("--ignore-fixes-check", action="store_true")
+        parser.add_argument("--pick-fixes", action="store_true")
+        parser.add_argument("--jira-url")
+        parser.add_argument("--jira-user")
+        parser.add_argument("--jira-key")
+        parser.add_argument("--jira-dry-run", action="store_true", default=False)
+        parser.add_argument("--vulns-dir", default="../vulns")
+        return parser
+
+    def test_sha_flag_sets_commit(self, cherry_pick_env):
+        mod, repo, _ = cherry_pick_env
+
+        sha = repo.head.commit.hexsha
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--sha", sha])
+        mod.resolve_sha_alias(args=args, parser=parser)
+
+        assert args.commit == sha
+        assert args.sha is None
+
+    def test_commit_flag_sets_commit(self, cherry_pick_env):
+        mod, repo, _ = cherry_pick_env
+
+        sha = repo.head.commit.hexsha
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--commit", sha])
+        mod.resolve_sha_alias(args=args, parser=parser)
+
+        assert args.commit == sha
+
+    def test_sha_and_commit_same_value_ok(self, cherry_pick_env):
+        mod, repo, _ = cherry_pick_env
+
+        sha = repo.head.commit.hexsha
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--commit", sha, "--sha", sha])
+        mod.resolve_sha_alias(args=args, parser=parser)
+
+        assert args.commit == sha
+
+    def test_sha_and_commit_conflicting_values_rejected(self, cherry_pick_env, capsys):
+        mod, _, _ = cherry_pick_env
+
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--commit", "aaa", "--sha", "bbb"])
+
+        with pytest.raises(SystemExit):
+            mod.resolve_sha_alias(args=args, parser=parser)
+
+        assert "--commit and --sha are aliases" in capsys.readouterr().err
+
+    def test_neither_flag_set(self, cherry_pick_env):
+        """Neither --commit nor --sha: header commit stays unset (current behavior)."""
+        mod, _, _ = cherry_pick_env
+
+        parser = self._build_parser(mod)
+        args = parser.parse_args([])
+        mod.resolve_sha_alias(args=args, parser=parser)
+
+        assert args.commit is None
+
+    def test_sha_alias_end_to_end_header(self, cherry_pick_env):
+        """--sha through resolve_sha_alias + from_argsparse_to_commit_header lands in the header."""
+        mod, repo, _ = cherry_pick_env
+
+        sha = repo.head.commit.hexsha
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--sha", sha])
+        mod.resolve_sha_alias(args=args, parser=parser)
+        args.jira = "VULN-1"
+
+        header = mod.from_argsparse_to_commit_header(args)
+
+        assert header.commit == sha
+        assert header.jira == "VULN-1"
