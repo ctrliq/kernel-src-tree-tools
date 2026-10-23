@@ -54,9 +54,7 @@ class CommitHeader:
 
     def to_str(self) -> str:
         commit_header_dict = asdict(self)
-        result = [f"{key.replace('_', '-')} {value}" for key, value in commit_header_dict.items() if value]
-
-        return result
+        return "\n".join(f"{key.replace('_', '-')} {value}" for key, value in commit_header_dict.items() if value)
 
     def is_cve(self) -> bool:
         return self.cve or self.cve_bf or self.cve_pre

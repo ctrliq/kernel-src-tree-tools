@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import logging
 
 import yaml
 from git import Repo
@@ -32,9 +33,14 @@ class GitRemoteInfo:
             self._add_remote(repo_dir=repo_dir)
 
         remote = repo.remotes[self.name]
+        if remote.url != self.url:
+            # Fetch from the existing url; never silently rewrite remotes the
+            # user already configured.
+            logging.warning(
+                f"remote '{self.name}' exists with url {remote.url}, "
+                f"different from configured {self.url}; fetching from the existing url"
+            )
         remote.fetch()
-
-    # TODO fetch that is not full, depth=1 or sth else??
 
 
 @dataclass

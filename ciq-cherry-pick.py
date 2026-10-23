@@ -278,12 +278,19 @@ class CherryPickCommand:
         Fixes: <sha>. If any, these will also be cherry picked with the ciq
         tag = cve-bf. If the tag was cve-pre, it stays the same.
         """
+        # Fixes: follow-ups are searched in mainline. Without a mainline sha
+        # (source-only pick, e.g. from centos-stream-9 or lore) there is
+        # nothing to search for.
+        mainline_sha = original_commit_header.commit
+        if not mainline_sha or mainline_sha == "-":
+            print("[NOTE]: No mainline commit for this pick, skipping Fixes: check")
+            return
+
         fixes_in_mainline = CIQ_find_fixes_in_mainline_current_branch_unapplied(
             repo=os.getcwd(),
             upstream_ref=self._upstream_ref,
-            hash_=original_commit_header.commit,  # TODO this original_commit_header stuff
+            hash_=mainline_sha,  # TODO this original_commit_header stuff
         )
-
         # TODO print all fixes I think
         for full_hash, display_str in fixes_in_mainline:
             print(f"Extra cherry picking {full_hash}: {display_str}")
@@ -309,8 +316,10 @@ def from_argsparse_to_commit_header(args: argparse.Namespace) -> CommitHeader:
         tags = args.ciq_tag.split(",")  # TODO make it smarter maybe idk
 
         for tag in tags:
-            name, value = tag.split(" ")
-            args_dict[name] = value
+            name, value = tag.strip().split(" ", 1)
+            # Tag names are hyphenated (cve-pre, cve-bf, ...); CommitHeader
+            # fields are underscored.
+            args_dict[name.replace("-", "_")] = value
 
     print(args)
 
@@ -386,10 +395,9 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    try:
-        cherry_pick_command = CherryPickCommand(args=args)
-    except Exception as e:
-        print(f"Setting chery pick command went wrong {e}")
+    # Let construction errors propagate: swallowing them here would crash
+    # later on an uninitialized cherry_pick_command anyway.
+    cherry_pick_command = CherryPickCommand(args=args)
 
     commit_header = from_argsparse_to_commit_header(args)
     print(commit_header)
