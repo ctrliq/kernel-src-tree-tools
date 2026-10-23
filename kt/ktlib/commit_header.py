@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import re
 from dataclasses import asdict, dataclass
 from typing import Optional
 
@@ -26,14 +27,38 @@ class CommitHeader:
     commit_source_author: Optional[str] = None
     upstream_diff: Optional[str] = None
 
+    # There are a pile of other tags that have not been codified consistently keep them rather than silently
+    # dropping them.  Provides the option of using them in the future if needed.
+    extras: Optional[dict] = None
+
+    def __post_init__(self):
+        # Every value of every tag as parsed: not a dataclass field.  Ignored by asdict()/to_str().
+        # populated by from_ciq_msg()
+        self._raw_tags: dict = {}
+
     @classmethod
     def from_dict(cls, env):
-        return cls(**{k: v for k, v in env.items() if k in inspect.signature(cls).parameters})
+        params = inspect.signature(cls).parameters
+        known = {k: v for k, v in env.items() if k in params and k != "extras"}
+        # CVE numbers are matched case-insensitively upstream and always stored
+        # upper-cased (CVE-\d{4}-\d+); tag values with extra prose are kept as-is.
+        for key in ("cve", "cve_bf", "cve_pre"):
+            value = known.get(key)
+            if value and re.fullmatch(r"(?i)cve-\d{4}-\d+", value.strip()):
+                known[key] = value.strip().upper()
+        extras = {k: v for k, v in env.items() if k not in params and v is not None}
+        header = cls(**known)
+        if extras:
+            header.extras = extras
+        return header
 
     @classmethod
     def from_ciq_msg(cls, ciq_msg: CiqMsg) -> CommitHeader:
-        # CiqMsg has multible values for tags and their values, that's overkill, we will always use one, the first one
+        # CiqMsg has multible values for tags and their values. The scalar
+        # fields keep the first value; every occurrence is collected in
+        # _raw_tags so callers (jiras(), upstream_commits()) can see them all.
         msg_dict = {}
+        raw: dict = {}
         for tag, value in ciq_msg._tags_dict.items():
             # TODO a bug here around upstream-diff from CiqMsg, this is an workaround
             if type(tag.value) is tuple:
@@ -42,21 +67,53 @@ class CommitHeader:
                 name = tag.value[0]
 
             tag_name = name.replace("-", "_")
-            tag_value = value[0][1]._value
-            msg_dict[tag_name] = tag_value
+            for v in value:  # Collect all tags.
+                raw.setdefault(tag_name, []).append(v[1]._value)
+            msg_dict[tag_name] = raw[tag_name][0]  # use the first value for the tag
 
-        return cls(**msg_dict)
+        header = cls.from_dict(msg_dict)
+        header._raw_tags = raw
+
+        return header
 
     @classmethod
     def from_commit_body(cls, commit_body: str) -> CommitHeader:
+        if commit_body and not commit_body.endswith("\n"):
+            commit_body += "\n"
         ciq_msg = CiqMsg(commit_body)
         return cls.from_ciq_msg(ciq_msg=ciq_msg)
 
     def to_str(self) -> str:
-        commit_header_dict = asdict(self)
-        result = [f"{key.replace('_', '-')} {value}" for key, value in commit_header_dict.items() if value]
+        lines = []
+        for key, value in asdict(self).items():
+            if key == "extras" or not value:
+                continue
+            if key == "jira" and "," in value:
+                lines += [f"jira {t.strip()}" for t in value.split(",") if t.strip()]
+            else:
+                lines.append(f"{key.replace('_', '-')} {value}")
 
-        return result
+        if self.extras:
+            lines += [f"{k.replace('_', '-')} {v}" for k, v in self.extras.items()]
+
+        return "\n".join(lines)
+
+    def jiras(self) -> list:
+        # Return a list of individual jira tickets. Handles both repeated
+        # `jira <ticket>` lines and comma-separated values on one line.
+        tickets = []
+        for value in self._raw_tags.get("jira", [self.jira]):
+            if not value:
+                continue
+            tickets += [t.strip() for t in value.split(",") if t.strip()]
+        return tickets
+
+    def upstream_commits(self) -> list:
+        # Return a list of upstream commits in a message, there should NOT be more than one but in the event there is
+        # return them all
+        if self._raw_tags and "commit" in self._raw_tags:
+            return [c for c in self._raw_tags["commit"] if c and c != "-"]
+        return [self.commit] if (self.commit and self.commit != "-") else []
 
     def is_cve(self) -> bool:
         return self.cve or self.cve_bf or self.cve_pre
@@ -78,17 +135,13 @@ class CommitHeader:
     def set_cve(self, cve_number):
         # Make sure only one cve tag is used
         # Our current tooling uses only 1 tag at the moment, but this may change and result in a commit that has 2 cve tags (cve, cve-bf) or (cve, cve-pre) for commits that are deps but cve as well
+        original_tags = ", ".join(
+            f"{t} {v}" for t, v in (("cve", self.cve), ("cve-bf", self.cve_bf), ("cve-pre", self.cve_pre)) if v
+        )
         self.cve_bf = None
         self.cve_pre = None
         self.cve = cve_number
-        print(f"CVE {cve_number} for hash {self.commit} and original tags {self.print_cve_tags()}")
-
-    def print_cve_tags(self) -> str:
-        if not self.is_cve():
-            return ""
-
-        # TODO add a priint with the original tag situation
-        return ""
+        print(f"CVE {cve_number} for hash {self.commit} and original tags {original_tags}")
 
     def make_it_cve_bf(self):
         # Interchange cve with cve-bf
@@ -103,17 +156,17 @@ class CommitHeader:
         self.cve = None
 
     def all_cves(self) -> list:
-        """Return a list of cve numbers"""
+        """Return a list of cve numbers.
+
+        A tag value may list several CVEs comma-separated (cve CVE-1, CVE-2);
+        split those into individual numbers.
+        """
 
         cves = []
-        if self.cve:
-            cves.append(self.cve)
-
-        if self.cve_bf:
-            cves.append(self.cve_bf)
-
-        if self.cve_pre:
-            cves.append(self.cve_pre)
+        for value in (self.cve, self.cve_bf, self.cve_pre):
+            if not value:
+                continue
+            cves += [c.strip() for c in value.split(",") if c.strip()]
 
         return cves
 

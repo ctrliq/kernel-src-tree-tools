@@ -1,10 +1,18 @@
 from dataclasses import dataclass
+import logging
 
 import yaml
 from git import Repo
+from git.exc import GitCommandError
 from pathlib3x import Path
 
 UPSTREAM_SOURCE_FILEPATH = Path(__file__).parent.parent.parent.joinpath("upstream_sources.yaml")
+
+
+def _raise_runtime_error(e: Exception):
+    """Translate git/network failures into RuntimeError so callers that report
+    errors per commit (run_interdiff.py) can catch them."""
+    raise RuntimeError(f"git operation failed: {e}") from e
 
 
 @dataclass
@@ -26,15 +34,30 @@ class GitRemoteInfo:
     def fetch(self, repo_dir: Path = "."):
         """
         Fetch remote repo_dir.
+
+        Raises:
+            RuntimeError: if adding or fetching the remote fails (network,
+            auth, bad url), so per-commit error reporting in callers works.
         """
         repo = Repo(repo_dir)
         if self.name not in repo.remotes:
-            self._add_remote(repo_dir=repo_dir)
+            try:
+                self._add_remote(repo_dir=repo_dir)
+            except GitCommandError as e:
+                _raise_runtime_error(e)
 
         remote = repo.remotes[self.name]
-        remote.fetch()
-
-    # TODO fetch that is not full, depth=1 or sth else??
+        if remote.url != self.url:
+            # Fetch from the existing url; never silently rewrite remotes the
+            # user already configured.
+            logging.warning(
+                f"remote '{self.name}' exists with url {remote.url}, "
+                f"different from configured {self.url}; fetching from the existing url"
+            )
+        try:
+            remote.fetch()
+        except GitCommandError as e:
+            _raise_runtime_error(e)
 
 
 @dataclass
