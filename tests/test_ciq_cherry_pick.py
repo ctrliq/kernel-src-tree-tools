@@ -11,12 +11,14 @@ import logging
 import os
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import git
 import pytest
 
 from kt.ktlib.commit_header import CommitHeader
+
+MAINLINE_SHA = "2abd5287f08319fa35764566b15c6e22cb1068db"
 
 SCRIPT_PATH = str(Path(__file__).resolve().parent.parent / "ciq-cherry-pick.py")
 
@@ -536,6 +538,73 @@ class TestCheckFixes:
 
 
 class TestCherryPickFixes:
+    def test_skipped_when_pick_fixes_not_set(self, cherry_pick_env):
+        """--pick-fixes is opt-in: without it follow-ups are never picked."""
+        mod, _, _ = cherry_pick_env
+
+        cmd = mod.CherryPickCommand(args=make_args(pick_fixes=False))
+        cmd._cherry_pick_fixes = MagicMock()
+        cmd._cherry_pick = MagicMock()
+
+        cmd.full_cherry_pick(commit_header=CommitHeader(commit="a" * 40))
+
+        cmd._cherry_pick_fixes.assert_not_called()
+
+    def test_picked_when_pick_fixes_set(self, cherry_pick_env, command):
+        command._pick_fixes = True
+        command._cherry_pick_fixes = MagicMock()
+        command._cherry_pick = MagicMock()
+
+        command.full_cherry_pick(commit_header=CommitHeader(commit="a" * 40))
+
+        command._cherry_pick_fixes.assert_called_once()
+
+    def test_followup_header_clears_source_provenance(self, cherry_pick_env):
+        """A follow-up is a mainline commit: the copied header must lose the
+        source provenance or the recursive pick would re-pick the original
+        source sha (extract_upstream_name_and_sha prefers commit_source_sha)."""
+        mod, repo, tmp_path = cherry_pick_env
+        original = repo.active_branch.name
+
+        # A branch to serve as upstream_ref containing a Fixes: follow-up
+        repo.create_head("upstream-mainline").checkout()
+        (tmp_path / "net" / "sched" / "sch_qfq.c").write_text("// mainline\n")
+        repo.index.add(["net/sched/sch_qfq.c"])
+        repo.index.commit("mainline head\n\n", author=git.Actor("A", "a@b.com"))
+        (tmp_path / "net" / "sched" / "sch_qfq.c").write_text("// followup\n")
+        repo.index.add(["net/sched/sch_qfq.c"])
+        repo.index.commit(
+            f'followup fix\n\nFixes: {MAINLINE_SHA[:12]} ("mainline head")\n',
+            author=git.Actor("B", "b@c.com"),
+        )
+        repo.heads[original].checkout()
+
+        cmd = mod.CherryPickCommand(args=make_args(upstream_ref="upstream-mainline"))
+        header = CommitHeader(
+            jira="VULN-1",
+            cve="CVE-2026-1234",
+            commit=MAINLINE_SHA,
+            commit_source="centos-stream-9",
+            commit_source_sha="5" * 40,
+        )
+        captured = {}
+
+        def fake_full_cherry_pick(self, commit_header):
+            captured["header"] = commit_header
+            # Stop the recursion after we capture the header
+            raise mod.CherryPickException("stop")
+
+        with patch.object(mod.CherryPickCommand, "full_cherry_pick", fake_full_cherry_pick):
+            with pytest.raises(mod.CherryPickException):
+                cmd._cherry_pick_fixes(original_commit_header=header)
+
+        bf_header = captured["header"]
+        assert bf_header.commit_source is None
+        assert bf_header.commit_source_sha is None
+        assert bf_header.commit_source_author is None
+        assert bf_header.cve is None
+        assert bf_header.cve_bf == "CVE-2026-1234"
+
     def test_skipped_without_mainline_sha(self, cherry_pick_env, command):
         """KERNEL-516: a source-only pick (commit='-') has no mainline sha to
         search Fixes: for — must skip cleanly, not crash."""
@@ -762,8 +831,9 @@ class TestFromArgsparseToCommitHeader:
         assert header.commit_source == "centos-stream-9"
         assert header.commit_source_sha == source_sha
 
-    def test_no_fetch_without_both_source_args(self, cherry_pick_env, monkeypatch):
-        """Only --commit-source (no sha) must not trigger a remote fetch."""
+    def test_no_fetch_without_source_sha(self, cherry_pick_env, monkeypatch):
+        """--commit-source without a sha must not trigger a remote fetch, nor
+        construct UpstreamRemotes (the yaml load is lazy)."""
         mod, _, _ = cherry_pick_env
 
         class StubUpstreamRemotes:
@@ -785,9 +855,30 @@ class TestFromArgsparseToCommitHeader:
         args = make_args(commit_source="centos-stream-9")
         header = mod.from_argsparse_to_commit_header(args)
 
-        assert StubUpstreamRemotes.instances[-1].fetch_mock.call_count == 0
+        assert StubUpstreamRemotes.instances == []
         assert header.commit_source == "centos-stream-9"
         assert header.commit_source_sha is None
+
+    def test_ciq_tag_without_value_raises(self, cherry_pick_env):
+        """A valueless tag (e.g. a trailing comma) is a usage error, not a
+        ValueError traceback from split unpacking."""
+        mod, _, _ = cherry_pick_env
+
+        args = make_args(ciq_tag="cve CVE-2026-52976,")
+        with pytest.raises(ValueError, match="expected '<name> <value>'"):
+            mod.from_argsparse_to_commit_header(args)
+
+    def test_cli_secrets_do_not_leak_into_header(self, cherry_pick_env):
+        """Only header fields are routed into CommitHeader; --jira-key and
+        friends must never land in extras (which to_str() emits)."""
+        mod, _, _ = cherry_pick_env
+
+        args = make_args(jira="VULN-1", jira_key="super-secret-token")
+        header = mod.from_argsparse_to_commit_header(args)
+
+        assert header.jira == "VULN-1"
+        assert not header.extras
+        assert "super-secret-token" not in header.to_str()
 
 
 # ---------------------------------------------------------------------------
@@ -890,3 +981,91 @@ class TestShaAlias:
 
         assert header.commit == sha
         assert header.jira == "VULN-1"
+
+
+# ---------------------------------------------------------------------------
+# --ticket alias for --jira
+# ---------------------------------------------------------------------------
+
+
+class TestTicketAlias:
+    """--ticket is accepted as a deprecated alias for --jira.
+
+    kernel-tools' cve_remediation_automation.py still invokes
+    `ciq-cherry-pick.py --ticket <key> ...`.
+    """
+
+    def _build_parser(self, mod):
+        import argparse
+
+        parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
+        parser.add_argument("--commit", dest="commit", required=False)
+        parser.add_argument("--sha", dest="sha", required=False)
+        parser.add_argument("--jira", dest="jira", required=False)
+        parser.add_argument("--ticket", dest="ticket", required=False)
+        parser.add_argument("--ciq-tag")
+        parser.add_argument("--upstream-ref", default="origin/kernel-mainline")
+        parser.add_argument("--commit-source")
+        parser.add_argument("--commit-source-sha")
+        parser.add_argument("--ignore-fixes-check", action="store_true")
+        parser.add_argument("--pick-fixes", action="store_true")
+        parser.add_argument("--jira-url")
+        parser.add_argument("--jira-user")
+        parser.add_argument("--jira-key")
+        parser.add_argument("--jira-dry-run", action="store_true", default=False)
+        parser.add_argument("--vulns-dir", default="../vulns")
+        return parser
+
+    def test_ticket_flag_sets_jira(self, cherry_pick_env):
+        mod, _, _ = cherry_pick_env
+
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--ticket", "VULN-185809"])
+        mod.resolve_ticket_alias(args=args, parser=parser)
+
+        assert args.jira == "VULN-185809"
+        assert args.ticket is None
+
+    def test_jira_flag_sets_jira(self, cherry_pick_env):
+        mod, _, _ = cherry_pick_env
+
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--jira", "VULN-185809"])
+        mod.resolve_ticket_alias(args=args, parser=parser)
+
+        assert args.jira == "VULN-185809"
+
+    def test_ticket_and_jira_same_value_ok(self, cherry_pick_env):
+        mod, _, _ = cherry_pick_env
+
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--jira", "VULN-1", "--ticket", "VULN-1"])
+        mod.resolve_ticket_alias(args=args, parser=parser)
+
+        assert args.jira == "VULN-1"
+
+    def test_ticket_and_jira_conflicting_values_rejected(self, cherry_pick_env, capsys):
+        mod, _, _ = cherry_pick_env
+
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--jira", "VULN-1", "--ticket", "VULN-2"])
+
+        with pytest.raises(SystemExit):
+            mod.resolve_ticket_alias(args=args, parser=parser)
+
+        assert "--jira and --ticket are aliases" in capsys.readouterr().err
+
+    def test_ticket_alias_end_to_end_header(self, cherry_pick_env):
+        """--ticket through the aliases lands as the jira tag in the header."""
+        mod, repo, _ = cherry_pick_env
+
+        sha = repo.head.commit.hexsha
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--commit", sha, "--ticket", "VULN-185809"])
+        mod.resolve_sha_alias(args=args, parser=parser)
+        mod.resolve_ticket_alias(args=args, parser=parser)
+
+        header = mod.from_argsparse_to_commit_header(args)
+
+        assert header.commit == sha
+        assert header.jira == "VULN-185809"
