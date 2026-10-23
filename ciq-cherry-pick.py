@@ -301,6 +301,25 @@ class CherryPickCommand:
             self.full_cherry_pick(commit_header=bf_commit_header)
 
 
+def resolve_sha_alias(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    """Fold the deprecated --sha flag into --commit.
+
+    Both name the same internal parameter. Passing both with conflicting
+    values is an error; otherwise --sha (when given) wins over an unset
+    --commit. Must be called right after parse_args(), before anything
+    reads args.commit.
+    """
+    sha = getattr(args, "sha", None)
+    if sha is None:
+        return
+
+    if args.commit and args.commit != sha:
+        parser.error("--commit and --sha are aliases; specify only one of them")
+
+    args.commit = sha
+    args.sha = None
+
+
 def from_argsparse_to_commit_header(args: argparse.Namespace) -> CommitHeader:
     upstream_remotes = UpstreamRemotes.from_yaml()
     if args.commit and args.commit != "-":
@@ -333,8 +352,17 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument(
-        "--commit", help="Target SHA1 to cherry-pick", required=False
+        "--commit",
+        dest="commit",
+        required=False,
+        help="Target SHA1 to cherry-pick",
     )  # TODO check if commit exists or not
+    parser.add_argument(
+        "--sha",
+        dest="sha",
+        required=False,
+        help="Deprecated alias for --commit (kept for existing callers, e.g. kernel-tools cve_remediation_automation)",
+    )
     parser.add_argument("--jira", help="Ticket associated to cherry-pick work, comma separated list is supported.")
     parser.add_argument(
         "--ciq-tag",
@@ -394,6 +422,8 @@ if __name__ == "__main__":
         "--vulns-dir", default="../vulns", help="Path to the kernel vulnerabilities repo (default: ../vulns)"
     )
     args = parser.parse_args()
+
+    resolve_sha_alias(args=args, parser=parser)
 
     # Let construction errors propagate: swallowing them here would crash
     # later on an uninitialized cherry_pick_command anyway.
