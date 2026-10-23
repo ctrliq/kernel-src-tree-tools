@@ -321,6 +321,23 @@ def resolve_sha_alias(args: argparse.Namespace, parser: argparse.ArgumentParser)
     args.sha = None
 
 
+def resolve_ticket_alias(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    """Fold the deprecated --ticket flag into --jira.
+
+    Same pattern as resolve_sha_alias: --ticket names the same parameter as
+    --jira. Passing both with conflicting values is an error.
+    """
+    ticket = getattr(args, "ticket", None)
+    if ticket is None:
+        return
+
+    if args.jira and args.jira != ticket:
+        parser.error("--jira and --ticket are aliases; specify only one of them")
+
+    args.jira = ticket
+    args.ticket = None
+
+
 def from_argsparse_to_commit_header(args: argparse.Namespace) -> CommitHeader:
     upstream_remotes = UpstreamRemotes.from_yaml()
     if args.commit and args.commit != "-":
@@ -366,7 +383,15 @@ if __name__ == "__main__":
         required=False,
         help="Deprecated alias for --commit (kept for existing callers, e.g. kernel-tools cve_remediation_automation)",
     )
-    parser.add_argument("--jira", help="Ticket associated to cherry-pick work, comma separated list is supported.")
+    parser.add_argument(
+        "--jira", dest="jira", help="Ticket associated to cherry-pick work, comma separated list is supported."
+    )
+    parser.add_argument(
+        "--ticket",
+        dest="ticket",
+        required=False,
+        help="Deprecated alias for --jira (kept for existing callers, e.g. kernel-tools cve_remediation_automation)",
+    )
     parser.add_argument(
         "--ciq-tag",
         help="Tags for commit message <feature><-optional modifier> <identifier>.\n"
@@ -427,6 +452,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     resolve_sha_alias(args=args, parser=parser)
+    resolve_ticket_alias(args=args, parser=parser)
 
     # Let construction errors propagate: swallowing them here would crash
     # later on an uninitialized cherry_pick_command anyway.

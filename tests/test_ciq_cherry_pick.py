@@ -890,3 +890,91 @@ class TestShaAlias:
 
         assert header.commit == sha
         assert header.jira == "VULN-1"
+
+
+# ---------------------------------------------------------------------------
+# --ticket alias for --jira
+# ---------------------------------------------------------------------------
+
+
+class TestTicketAlias:
+    """--ticket is accepted as a deprecated alias for --jira.
+
+    kernel-tools' cve_remediation_automation.py still invokes
+    `ciq-cherry-pick.py --ticket <key> ...`.
+    """
+
+    def _build_parser(self, mod):
+        import argparse
+
+        parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
+        parser.add_argument("--commit", dest="commit", required=False)
+        parser.add_argument("--sha", dest="sha", required=False)
+        parser.add_argument("--jira", dest="jira", required=False)
+        parser.add_argument("--ticket", dest="ticket", required=False)
+        parser.add_argument("--ciq-tag")
+        parser.add_argument("--upstream-ref", default="origin/kernel-mainline")
+        parser.add_argument("--commit-source")
+        parser.add_argument("--commit-source-sha")
+        parser.add_argument("--ignore-fixes-check", action="store_true")
+        parser.add_argument("--pick-fixes", action="store_true")
+        parser.add_argument("--jira-url")
+        parser.add_argument("--jira-user")
+        parser.add_argument("--jira-key")
+        parser.add_argument("--jira-dry-run", action="store_true", default=False)
+        parser.add_argument("--vulns-dir", default="../vulns")
+        return parser
+
+    def test_ticket_flag_sets_jira(self, cherry_pick_env):
+        mod, _, _ = cherry_pick_env
+
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--ticket", "VULN-185809"])
+        mod.resolve_ticket_alias(args=args, parser=parser)
+
+        assert args.jira == "VULN-185809"
+        assert args.ticket is None
+
+    def test_jira_flag_sets_jira(self, cherry_pick_env):
+        mod, _, _ = cherry_pick_env
+
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--jira", "VULN-185809"])
+        mod.resolve_ticket_alias(args=args, parser=parser)
+
+        assert args.jira == "VULN-185809"
+
+    def test_ticket_and_jira_same_value_ok(self, cherry_pick_env):
+        mod, _, _ = cherry_pick_env
+
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--jira", "VULN-1", "--ticket", "VULN-1"])
+        mod.resolve_ticket_alias(args=args, parser=parser)
+
+        assert args.jira == "VULN-1"
+
+    def test_ticket_and_jira_conflicting_values_rejected(self, cherry_pick_env, capsys):
+        mod, _, _ = cherry_pick_env
+
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--jira", "VULN-1", "--ticket", "VULN-2"])
+
+        with pytest.raises(SystemExit):
+            mod.resolve_ticket_alias(args=args, parser=parser)
+
+        assert "--jira and --ticket are aliases" in capsys.readouterr().err
+
+    def test_ticket_alias_end_to_end_header(self, cherry_pick_env):
+        """--ticket through the aliases lands as the jira tag in the header."""
+        mod, repo, _ = cherry_pick_env
+
+        sha = repo.head.commit.hexsha
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--commit", sha, "--ticket", "VULN-185809"])
+        mod.resolve_sha_alias(args=args, parser=parser)
+        mod.resolve_ticket_alias(args=args, parser=parser)
+
+        header = mod.from_argsparse_to_commit_header(args)
+
+        assert header.commit == sha
+        assert header.jira == "VULN-185809"
