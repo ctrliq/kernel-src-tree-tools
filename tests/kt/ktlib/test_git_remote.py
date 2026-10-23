@@ -122,3 +122,107 @@ def test_fetch_warns_on_url_mismatch_existing_remote(local_repo, bare_remote, ca
     # Remote was NOT rewritten
     assert local_repo.remotes["mainline"].url == str(other)
     assert "different from configured" in caplog.text
+
+
+# --- UpstreamRemotes.fetch_for_commit_source ---
+
+
+def _make_source_commit(target, msg="source commit"):
+    """Create a commit with a distinct file and return its full sha.
+
+    target may be a work repo (seeded directly) or a bare remote (seeded via
+    a temp work repo and pushed), mirroring the bare_remote fixture pattern.
+    """
+    repo = Repo(str(target))
+    if repo.bare:
+        seed = Path(str(target)).parent / f"seed_{msg.replace(' ', '_')}"
+        seed_repo = Repo.init(str(seed))
+        with seed_repo.config_writer() as cw:
+            cw.set_value("user", "name", "Tester")
+            cw.set_value("user", "email", "t@t.com")
+        (seed / "src.txt").write_text(msg)
+        seed_repo.index.add(["src.txt"])
+        commit = seed_repo.index.commit(msg)
+        seed_repo.create_remote("origin", str(target))
+        seed_repo.remotes.origin.push(f"HEAD:refs/heads/{msg.split()[0]}")
+        return commit.hexsha
+
+    (Path(str(target)) / "src.txt").write_text(msg)
+    repo.index.add(["src.txt"])
+    return repo.index.commit(msg).hexsha
+
+
+class TestFetchForCommitSource:
+    def test_sha_local_is_noop(self, local_repo):
+        """Objects already local -> no fetch, no network."""
+        remotes = UpstreamRemotes.from_dict(data={})
+        sha = _make_source_commit(local_repo.working_dir)
+
+        # No remotes configured: must still succeed because the sha is local
+        remotes.fetch_for_commit_source(
+            commit_source="linux-6.12.y", sha=sha, repo_dir=Path(str(local_repo.working_dir))
+        )
+
+    def test_remote_name_source_fetches_that_remote(self, local_repo, bare_remote):
+        """commit_source matching an upstream_sources.yaml key -> that remote fetched."""
+        sha = _make_source_commit(bare_remote, "seedcommit main")
+        # sha not local yet: give local_repo a different history
+        (Path(str(local_repo.working_dir)) / "other.txt").write_text("x")
+        local_repo.index.add(["other.txt"])
+        local_repo.index.commit("other")
+
+        remotes = UpstreamRemotes.from_dict(data={"centos-stream-9": str(bare_remote)})
+        remotes.fetch_for_commit_source(
+            commit_source="centos-stream-9", sha=sha, repo_dir=Path(str(local_repo.working_dir))
+        )
+
+        refs = [str(r) for r in local_repo.remotes["centos-stream-9"].refs]
+        assert any("main" in ref for ref in refs)
+        # sha now resolvable
+        local_repo.git.rev_parse("--verify", f"{sha}^{{commit}}")
+
+    def test_branch_source_resolves_and_fetches(self, local_repo, bare_remote):
+        """commit_source as a branch name -> ls-remote finds it, remote fetched."""
+        sha = _make_source_commit(bare_remote, "linux-6.12.y main")
+        remotes = UpstreamRemotes.from_dict(data={"linux-stable": str(bare_remote)})
+
+        remotes.fetch_for_commit_source(
+            commit_source="linux-6.12.y", sha=sha, repo_dir=Path(str(local_repo.working_dir))
+        )
+
+        assert "linux-stable" in [r.name for r in local_repo.remotes]
+        # the branch was fetched and the sha is now resolvable
+        refs = [str(r) for r in local_repo.remotes["linux-stable"].refs]
+        assert any("linux-6.12.y" in ref for ref in refs)
+        local_repo.git.rev_parse("--verify", f"{sha}^{{commit}}")
+
+    def test_branch_source_unknown_branch_raises(self, local_repo, bare_remote):
+        remotes = UpstreamRemotes.from_dict(data={"linux-stable": str(bare_remote)})
+
+        with pytest.raises(RuntimeError, match="neither an upstream source"):
+            remotes.fetch_for_commit_source(
+                commit_source="linux-9.99.y", sha="1" * 40, repo_dir=Path(str(local_repo.working_dir))
+            )
+
+    def test_branch_source_no_remotes_configured_raises(self, local_repo):
+        remotes = UpstreamRemotes.from_dict(data={})
+
+        with pytest.raises(RuntimeError, match="neither an upstream source"):
+            remotes.fetch_for_commit_source(
+                commit_source="linux-6.12.y", sha="2" * 40, repo_dir=Path(str(local_repo.working_dir))
+            )
+
+    def test_remote_name_preferred_over_branch_resolution(self, local_repo, tmp_path):
+        """If commit_source is a yaml key, fetch that remote even if a sha is unknown."""
+        url = str(tmp_path / "c9.git")
+        Repo.init(url, bare=True)
+        remotes = UpstreamRemotes.from_dict(data={"centos-stream-9": url})
+
+        # Unknown sha: the fetch happens (fetch of an empty remote succeeds and
+        # the subsequent rev-parse would fail - but fetch_for_commit_source's
+        # contract is "fetch the remote", not "guarantee the sha").
+        remotes.fetch_for_commit_source(
+            commit_source="centos-stream-9", sha="3" * 40, repo_dir=Path(str(local_repo.working_dir))
+        )
+
+        assert "centos-stream-9" in [r.name for r in local_repo.remotes]

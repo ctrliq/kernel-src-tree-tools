@@ -6,6 +6,7 @@ import subprocess
 import sys
 import traceback
 from datetime import datetime
+from pathlib import Path
 
 import git
 
@@ -326,7 +327,9 @@ def from_argsparse_to_commit_header(args: argparse.Namespace) -> CommitHeader:
         args.commit = CIQ_get_full_hash(repo=os.getcwd(), short_hash=args.commit)
 
     if args.commit_source_sha and args.commit_source:
-        upstream_remotes.fetch_remote(remote_name=args.commit_source, repo_dir=os.getcwd())
+        upstream_remotes.fetch_for_commit_source(
+            commit_source=args.commit_source, sha=args.commit_source_sha, repo_dir=Path(os.getcwd())
+        )
         args.commit_source_sha = CIQ_get_full_hash(repo=os.getcwd(), short_hash=args.commit_source_sha)
 
     args_dict = vars(args)

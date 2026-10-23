@@ -176,10 +176,13 @@ def main():
             commit_header = CommitHeader.from_commit_body(commit_body=msg)
 
             (upstream_remote, upstream_hash) = commit_header.extract_upstream_name_and_sha()
-            if upstream_remote:
-                # Make sure the remote is added and fetched so that interdiff works
-                print(f"FETCHING REMOTE {upstream_remote}")
-                upstream_remotes.fetch_remote(remote_name=upstream_remote, repo_dir=args.repo)
+            if upstream_remote and upstream_hash:
+                # Make sure the objects are available locally so interdiff works.
+                # commit-source can be a remote name (e.g. centos-stream-9) or a
+                # branch (e.g. linux-6.12.y); fetch_for_commit_source handles both.
+                upstream_remotes.fetch_for_commit_source(
+                    commit_source=upstream_remote, sha=upstream_hash, repo_dir=args.repo
+                )
         except RuntimeError as e:
             # Handle errors getting commit information
             any_differences = True

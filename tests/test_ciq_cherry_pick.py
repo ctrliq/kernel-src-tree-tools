@@ -747,8 +747,8 @@ class TestFromArgsparseToCommitHeader:
             def from_yaml(cls):
                 return cls()
 
-            def fetch_remote(self, remote_name, repo_dir):
-                self.fetch_mock(remote_name=remote_name, repo_dir=repo_dir)
+            def fetch_for_commit_source(self, commit_source, sha, repo_dir):
+                self.fetch_mock(commit_source=commit_source, sha=sha, repo_dir=repo_dir)
 
         monkeypatch.setattr(mod, "UpstreamRemotes", StubUpstreamRemotes)
 
@@ -756,7 +756,9 @@ class TestFromArgsparseToCommitHeader:
         header = mod.from_argsparse_to_commit_header(args)
 
         assert StubUpstreamRemotes.last_instance.fetch_mock.call_count == 1
-        assert StubUpstreamRemotes.last_instance.fetch_mock.call_args.kwargs["remote_name"] == "centos-stream-9"
+        fetch_kwargs = StubUpstreamRemotes.last_instance.fetch_mock.call_args.kwargs
+        assert fetch_kwargs["commit_source"] == "centos-stream-9"
+        assert fetch_kwargs["sha"] == source_sha[:12]
         assert header.commit_source == "centos-stream-9"
         assert header.commit_source_sha == source_sha
 
@@ -775,8 +777,8 @@ class TestFromArgsparseToCommitHeader:
             def from_yaml(cls):
                 return cls()
 
-            def fetch_remote(self, remote_name, repo_dir):
-                self.fetch_mock(remote_name=remote_name, repo_dir=repo_dir)
+            def fetch_for_commit_source(self, commit_source, sha, repo_dir):
+                self.fetch_mock(commit_source=commit_source, sha=sha, repo_dir=repo_dir)
 
         monkeypatch.setattr(mod, "UpstreamRemotes", StubUpstreamRemotes)
 
