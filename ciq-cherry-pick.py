@@ -357,30 +357,45 @@ def resolve_ticket_alias(args: argparse.Namespace, parser: argparse.ArgumentPars
 
 
 def from_argsparse_to_commit_header(args: argparse.Namespace) -> CommitHeader:
-    upstream_remotes = UpstreamRemotes.from_yaml()
     if args.commit and args.commit != "-":
         args.commit = CIQ_get_full_hash(repo=os.getcwd(), short_hash=args.commit)
 
-    if args.commit_source_sha and args.commit_source:
-        upstream_remotes.fetch_for_commit_source(
-            commit_source=args.commit_source, sha=args.commit_source_sha, repo_dir=Path(os.getcwd())
-        )
+    if args.commit_source_sha:
+        if args.commit_source:
+            upstream_remotes = UpstreamRemotes.from_yaml()
+            upstream_remotes.fetch_for_commit_source(
+                commit_source=args.commit_source, sha=args.commit_source_sha, repo_dir=Path(os.getcwd())
+            )
         args.commit_source_sha = CIQ_get_full_hash(repo=os.getcwd(), short_hash=args.commit_source_sha)
 
-    args_dict = vars(args)
-    tags = []
-    if args.ciq_tag is not None:
-        tags = args.ciq_tag.split(",")  # TODO make it smarter maybe idk
+    # Only the header fields the CLI provides. Passing vars(args) wholesale would
+    # route flags like --jira-key into CommitHeader.extras and leak them into the
+    # commit message.
+    header_fields = {
+        "jira": args.jira,
+        "commit": args.commit,
+        "commit_source": args.commit_source,
+        "commit_source_sha": args.commit_source_sha,
+    }
 
-        for tag in tags:
-            name, value = tag.strip().split(" ", 1)
+    if args.ciq_tag is not None:
+        # TODO make it smarter maybe idk
+        for tag in args.ciq_tag.split(","):
+            parts = tag.strip().split(" ", 1)
+            if len(parts) != 2:
+                raise ValueError(f"Invalid --ciq-tag '{tag}', expected '<name> <value>'")
+            name, value = parts
             # Tag names are hyphenated (cve-pre, cve-bf, ...); CommitHeader
             # fields are underscored.
-            args_dict[name.replace("-", "_")] = value
+            key = name.replace("-", "_")
+            if key in header_fields and header_fields[key]:
+                # Repeated jira/cve-family tags accumulate instead of
+                # overwriting, so "cve CVE-1, cve CVE-2" keeps both values.
+                header_fields[key] = f"{header_fields[key]}, {value}"
+            else:
+                header_fields[key] = value
 
-    print(args)
-
-    return CommitHeader.from_dict(args_dict)
+    return CommitHeader.from_dict(header_fields)
 
 
 if __name__ == "__main__":
@@ -477,6 +492,8 @@ if __name__ == "__main__":
     cherry_pick_command = CherryPickCommand(args=args)
 
     commit_header = from_argsparse_to_commit_header(args)
+    if commit_header.extract_upstream_name_and_sha() == (None, None):
+        parser.error("nothing to cherry-pick: provide --commit/--sha, or --commit-source-sha")
     print(commit_header)
 
     try:
