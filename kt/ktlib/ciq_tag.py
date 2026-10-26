@@ -76,6 +76,9 @@ class CiqTag(Enum):
     REBUILD_FUZZ = ["Rebuild_FUZZ"]
     COMMIT_AUTHOR = ["commit-author"]
     COMMIT = ["commit"]
+    COMMIT_SOURCE = ["commit-source"]
+    COMMIT_SOURCE_SHA = ["commit-source-sha"]
+    COMMIT_SOURCE_AUTHOR = ["commit-source-author"]
     EMPTY_COMMIT = (["Empty-Commit"], True)
     UPSTREAM_DIFF = (["upstream-diff"], True)
 

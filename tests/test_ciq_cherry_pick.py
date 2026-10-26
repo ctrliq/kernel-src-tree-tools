@@ -1,10 +1,11 @@
-"""Tests for ciq-cherry-pick.py
+"""Tests for ciq-cherry-pick.py ({rnicolescu}_commit_source CherryPickCommand API).
 
 Imports the module via importlib (hyphenated filename, module-level
-git.Repo(os.getcwd()) call) against temporary git repos. Test fixtures
-use real commit data from ciqlts9_6 and rocky9_6 in ctrliq/kernel-src-tree.
+git.Repo(os.getcwd()) call) against temporary git repos. Commit data in the
+fixtures mirrors real backports (drm/xe, KVM, net/sched) from ctrliq/kernel-src-tree.
 """
 
+import argparse
 import importlib.util
 import logging
 import os
@@ -15,7 +16,33 @@ from unittest.mock import MagicMock
 import git
 import pytest
 
+from kt.ktlib.commit_header import CommitHeader
+
 SCRIPT_PATH = str(Path(__file__).resolve().parent.parent / "ciq-cherry-pick.py")
+
+JIRA_ENV_VARS = ["JIRA_URL", "JIRA_API_USER", "JIRA_API_TOKEN", "KERNEL_JIRA_API_USER", "KERNEL_JIRA_API_KEY"]
+
+
+def make_args(**overrides):
+    """argparse.Namespace matching ciq-cherry-pick.py's parser."""
+    defaults = dict(
+        commit=None,
+        sha=None,
+        jira=None,
+        ciq_tag=None,
+        upstream_ref="origin/kernel-mainline",
+        commit_source=None,
+        commit_source_sha=None,
+        ignore_fixes_check=False,
+        pick_fixes=False,
+        jira_url=None,
+        jira_user=None,
+        jira_key=None,
+        jira_dry_run=False,
+        vulns_dir="../vulns",
+    )
+    defaults.update(overrides)
+    return argparse.Namespace(**defaults)
 
 
 @pytest.fixture
@@ -24,6 +51,11 @@ def cherry_pick_env(tmp_path, monkeypatch):
 
     Returns (module, repo, tmp_path).
     """
+    # The ambient environment may carry real JIRA credentials; the command
+    # would construct a live JiraInstance from them.
+    for var in JIRA_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+
     repo = git.Repo.init(tmp_path)
     with repo.config_writer() as cw:
         cw.set_value("user", "name", "Backporter")
@@ -49,6 +81,13 @@ def cherry_pick_env(tmp_path, monkeypatch):
         del sys.modules["ciq_cherry_pick"]
 
 
+@pytest.fixture
+def command(cherry_pick_env):
+    """A CherryPickCommand built from default args (no JIRA instance)."""
+    mod, _, _ = cherry_pick_env
+    return mod.CherryPickCommand(args=make_args())
+
+
 def _create_upstream_commit(repo, tmp_path, msg, file_content, author_name, author_email):
     """Create a commit on a fresh branch from the current HEAD and return to the original branch."""
     original = repo.active_branch.name
@@ -63,51 +102,39 @@ def _create_upstream_commit(repo, tmp_path, msg, file_content, author_name, auth
     return commit
 
 
-# ---------------------------------------------------------------------------
-# extract_cve_from_tag
-# ---------------------------------------------------------------------------
+def _write_merge_msg(mod, lines):
+    with open(mod.MERGE_MSG, "w") as f:
+        f.writelines(lines)
 
 
-class TestExtractCveFromTag:
-    def test_cve_tag(self, cherry_pick_env):
-        mod, _, _ = cherry_pick_env
-        assert mod.extract_cve_from_tag("cve CVE-2026-52976") == "CVE-2026-52976"
+def _read_merge_msg(mod):
+    with open(mod.MERGE_MSG) as f:
+        return f.read()
 
-    def test_cve_bf_tag(self, cherry_pick_env):
-        mod, _, _ = cherry_pick_env
-        assert mod.extract_cve_from_tag("cve-bf CVE-2025-38653") == "CVE-2025-38653"
 
-    def test_cve_pre_not_matched(self, cherry_pick_env):
-        mod, _, _ = cherry_pick_env
-        assert mod.extract_cve_from_tag("cve-pre CVE-2024-53216") is None
-
-    def test_no_match(self, cherry_pick_env):
-        mod, _, _ = cherry_pick_env
-        assert mod.extract_cve_from_tag("random text") is None
-
-    def test_embedded_after_jira(self, cherry_pick_env):
-        mod, _, _ = cherry_pick_env
-        assert mod.extract_cve_from_tag("jira VULN-123, cve CVE-2025-5678") == "CVE-2025-5678"
+def _merge_msg_lines(sha):
+    """MERGE_MSG content mimicking `git cherry-pick -nsx <sha>`."""
+    return [
+        "KVM: x86: Check for invalid root\n",
+        "\n",
+        "Check for a stale page fault.\n",
+        "\n",
+        "Signed-off-by: Sean Christopherson <seanjc@google.com>\n",
+        f"(cherry picked from commit {sha})\n",
+        "Signed-off-by: Backporter <backporter@ciq.com>\n",
+    ]
 
 
 # ---------------------------------------------------------------------------
-# manage_commit_message
+# CherryPickCommand._manage_commit_message
 # ---------------------------------------------------------------------------
 
 
 class TestManageCommitMessage:
-    """Modeled after ciqlts9_6 10d418025314 (drm/xe) and 0df72fa942dc (KVM)."""
-
-    def _write_merge_msg(self, mod, lines):
-        with open(mod.MERGE_MSG, "w") as f:
-            f.writelines(lines)
-
-    def _read_merge_msg(self, mod):
-        with open(mod.MERGE_MSG) as f:
-            return f.read()
+    def _make_cmd(self, mod):
+        return mod.CherryPickCommand(args=make_args())
 
     def test_standardizes_cve_commit(self, cherry_pick_env):
-        """Verify full CIQ header: jira, cve, commit-author, commit."""
         mod, repo, tmp_path = cherry_pick_env
 
         commit = _create_upstream_commit(
@@ -116,7 +143,6 @@ class TestManageCommitMessage:
             msg=(
                 "drm/xe: Fix error cleanup in xe_exec_queue_create_ioctl()\n\n"
                 "Two error handling issues exist.\n\n"
-                'Fixes: 7970cb36966c ("drm/xe/hw_engine_group")\n'
                 "Signed-off-by: Shuicheng Lin <shuicheng.lin@intel.com>\n"
             ),
             file_content="// fixed\nint qfq_init(void) { return 1; }\n",
@@ -124,114 +150,128 @@ class TestManageCommitMessage:
             author_email="shuicheng.lin@intel.com",
         )
         sha = commit.hexsha
+        _write_merge_msg(mod, _merge_msg_lines(sha))
 
-        self._write_merge_msg(
-            mod,
-            [
-                "drm/xe: Fix error cleanup in xe_exec_queue_create_ioctl()\n",
-                "\n",
-                "Two error handling issues exist.\n",
-                "\n",
-                'Fixes: 7970cb36966c ("drm/xe/hw_engine_group")\n',
-                "Signed-off-by: Shuicheng Lin <shuicheng.lin@intel.com>\n",
-                f"(cherry picked from commit {sha})\n",
-                "Signed-off-by: Backporter <backporter@ciq.com>\n",
-            ],
-        )
+        cmd = self._make_cmd(mod)
+        header = CommitHeader(jira="VULN-189406", cve="CVE-2026-52976", commit=sha)
+        cmd._manage_commit_message(commit_header=header, commit_successful=True)
 
-        mod.manage_commit_message(
-            full_sha=sha,
-            ciq_tags=["cve CVE-2026-52976"],
-            jira_ticket="VULN-189406",
-            commit_successful=True,
-        )
-
-        result = self._read_merge_msg(mod)
+        result = _read_merge_msg(mod)
         assert "jira VULN-189406\n" in result
         assert "cve CVE-2026-52976\n" in result
-        assert "commit-author Shuicheng Lin <shuicheng.lin@intel.com>\n" in result
         assert f"commit {sha}\n" in result
         assert "upstream-diff" not in result
 
-    def test_conflict_adds_upstream_diff(self, cherry_pick_env):
-        """commit_successful=False should insert upstream-diff marker."""
+    def test_conflict_sets_upstream_diff_marker(self, cherry_pick_env):
         mod, repo, tmp_path = cherry_pick_env
 
         commit = _create_upstream_commit(
             repo,
             tmp_path,
-            msg="KVM: x86: Check for invalid root\n\nCheck for stale fault.\n\n"
-            "Signed-off-by: Sean Christopherson <seanjc@google.com>\n",
+            msg="KVM: x86: Check for invalid root\n\nCheck for stale fault.\n\n",
             file_content="// kvm fix\n",
             author_name="Sean Christopherson",
             author_email="seanjc@google.com",
         )
         sha = commit.hexsha
+        _write_merge_msg(mod, _merge_msg_lines(sha))
 
-        self._write_merge_msg(
-            mod,
-            [
-                "KVM: x86: Check for invalid root\n",
-                "\n",
-                "Check for stale fault.\n",
-                "\n",
-                "Signed-off-by: Sean Christopherson <seanjc@google.com>\n",
-                f"(cherry picked from commit {sha})\n",
-                "Signed-off-by: Backporter <backporter@ciq.com>\n",
-            ],
-        )
+        cmd = self._make_cmd(mod)
+        header = CommitHeader(jira="VULN-195551", cve="CVE-2026-64561", commit=sha)
+        cmd._manage_commit_message(commit_header=header, commit_successful=False)
 
-        mod.manage_commit_message(
-            full_sha=sha,
-            ciq_tags=["cve CVE-2026-64561"],
-            jira_ticket="VULN-195551",
-            commit_successful=False,
-        )
-
-        result = self._read_merge_msg(mod)
+        result = _read_merge_msg(mod)
         assert "upstream-diff |\n" in result
         assert "jira VULN-195551\n" in result
 
     def test_header_ordering(self, cherry_pick_env):
-        """jira → cve → commit-author → commit, matching ciqlts9_6 format."""
+        """jira -> cve -> commit-author -> commit, matching the CIQ format."""
         mod, repo, tmp_path = cherry_pick_env
 
         commit = _create_upstream_commit(
             repo,
             tmp_path,
-            msg="nfsd: fix UAF\n\nFix UAF.\n\nSigned-off-by: Yang Erkun <yangerkun@huawei.com>\n",
+            msg="nfsd: fix UAF\n\nFix UAF.\n\n",
             file_content="// nfsd fix\n",
             author_name="Yang Erkun",
             author_email="yangerkun@huawei.com",
         )
         sha = commit.hexsha
+        _write_merge_msg(mod, _merge_msg_lines(sha))
 
-        self._write_merge_msg(
-            mod,
-            [
-                "nfsd: fix UAF\n",
-                "\n",
-                "Fix UAF.\n",
-                "\n",
-                "Signed-off-by: Yang Erkun <yangerkun@huawei.com>\n",
-                f"(cherry picked from commit {sha})\n",
-                "Signed-off-by: Backporter <backporter@ciq.com>\n",
-            ],
+        cmd = self._make_cmd(mod)
+        header = CommitHeader(
+            jira="VULN-167075",
+            cve="CVE-2024-53216",
+            commit_author="Yang Erkun <yangerkun@huawei.com>",
+            commit=sha,
         )
+        cmd._manage_commit_message(commit_header=header, commit_successful=True)
 
-        mod.manage_commit_message(
-            full_sha=sha,
-            ciq_tags=["cve CVE-2024-53216"],
-            jira_ticket="VULN-167075",
-            commit_successful=True,
-        )
-
-        result = self._read_merge_msg(mod)
+        result = _read_merge_msg(mod)
         jira_pos = result.index("jira VULN-167075")
         cve_pos = result.index("cve CVE-2024-53216")
         author_pos = result.index("commit-author Yang Erkun")
         commit_pos = result.index(f"commit {sha}")
         assert jira_pos < cve_pos < author_pos < commit_pos
+
+    def test_commit_source_tags_emitted(self, cherry_pick_env):
+        """KERNEL-516: source-only pick writes commit-source / commit-source-sha tags."""
+        mod, repo, tmp_path = cherry_pick_env
+
+        commit = _create_upstream_commit(
+            repo,
+            tmp_path,
+            msg="authencesn: reject invalid authsize\n\nBody.\n\n",
+            file_content="// fix\n",
+            author_name="Yucheng Lu",
+            author_email="kanolyc@gmail.com",
+        )
+        source_sha = commit.hexsha
+        _write_merge_msg(mod, _merge_msg_lines(source_sha))
+
+        cmd = self._make_cmd(mod)
+        header = CommitHeader(
+            jira="VULN-181881",
+            cve_bf="CVE-2026-31431",
+            commit="-",
+            commit_source="centos-stream-9",
+            commit_source_sha=source_sha,
+        )
+        cmd._manage_commit_message(commit_header=header, commit_successful=True)
+
+        result = _read_merge_msg(mod)
+        assert "commit -\n" in result
+        assert "commit-source centos-stream-9\n" in result
+        assert f"commit-source-sha {source_sha}\n" in result
+
+    def test_conflicts_block_stripped(self, cherry_pick_env):
+        """git appends a '# Conflicts:' comment block on conflicted picks; it must not
+        survive into the final commit message."""
+        mod, repo, tmp_path = cherry_pick_env
+
+        commit = _create_upstream_commit(
+            repo,
+            tmp_path,
+            msg="fix\n\nBody.\n\n",
+            file_content="// fix\n",
+            author_name="A",
+            author_email="a@b.com",
+        )
+        sha = commit.hexsha
+        lines = _merge_msg_lines(sha) + [
+            "# Conflicts:\n",
+            "#\tnet/sched/sch_qfq.c\n",
+        ]
+        _write_merge_msg(mod, lines)
+
+        cmd = self._make_cmd(mod)
+        header = CommitHeader(jira="VULN-1", commit=sha)
+        cmd._manage_commit_message(commit_header=header, commit_successful=False)
+
+        result = _read_merge_msg(mod)
+        assert "# Conflicts:" not in result
+        assert "sch_qfq.c\n" not in result
 
     def test_backup_created(self, cherry_pick_env):
         mod, repo, tmp_path = cherry_pick_env
@@ -239,69 +279,31 @@ class TestManageCommitMessage:
         commit = _create_upstream_commit(
             repo,
             tmp_path,
-            msg="fix something\n\nSigned-off-by: A <a@b.com>\n",
+            msg="fix something\n\n",
             file_content="// v2\n",
             author_name="A",
             author_email="a@b.com",
         )
+        sha = commit.hexsha
+        _write_merge_msg(mod, _merge_msg_lines(sha))
 
-        self._write_merge_msg(
-            mod,
-            [
-                "fix something\n",
-                "\n",
-                "Signed-off-by: A <a@b.com>\n",
-                f"(cherry picked from commit {commit.hexsha})\n",
-                "Signed-off-by: Backporter <backporter@ciq.com>\n",
-            ],
-        )
+        cmd = self._make_cmd(mod)
+        cmd._manage_commit_message(commit_header=CommitHeader(commit=sha), commit_successful=True)
 
-        mod.manage_commit_message(commit.hexsha, [], None, True)
         assert os.path.exists(mod.MERGE_MSG_BAK)
-
-    def test_multiple_jira_tickets(self, cherry_pick_env):
-        mod, repo, tmp_path = cherry_pick_env
-
-        commit = _create_upstream_commit(
-            repo,
-            tmp_path,
-            msg="fix two things\n\nSigned-off-by: A <a@b.com>\n",
-            file_content="// multi\n",
-            author_name="A",
-            author_email="a@b.com",
-        )
-
-        self._write_merge_msg(
-            mod,
-            [
-                "fix two things\n",
-                "\n",
-                "Signed-off-by: A <a@b.com>\n",
-                f"(cherry picked from commit {commit.hexsha})\n",
-                "Signed-off-by: Backporter <backporter@ciq.com>\n",
-            ],
-        )
-
-        mod.manage_commit_message(commit.hexsha, [], "VULN-100,VULN-200", True)
-
-        result = self._read_merge_msg(mod)
-        assert "jira VULN-100\n" in result
-        assert "jira VULN-200\n" in result
 
 
 # ---------------------------------------------------------------------------
-# cherry_pick — full integration
+# CherryPickCommand._cherry_pick — full integration
 # ---------------------------------------------------------------------------
 
 
 class TestCherryPick:
-    """Integration tests using real git cherry-pick operations.
+    def _make_cmd(self, mod, **overrides):
+        return mod.CherryPickCommand(args=make_args(**overrides))
 
-    Modeled after ciqlts9_6 0df72fa942dc (KVM) and 42796dd9cd76 (net/sched).
-    """
-
-    def test_successful_cherry_pick(self, cherry_pick_env):
-        """Clean cherry-pick produces CIQ-standardized commit on current branch."""
+    def test_successful_cherry_pick_mainline(self, cherry_pick_env):
+        """Clean mainline cherry-pick produces the CIQ-standardized commit."""
         mod, repo, tmp_path = cherry_pick_env
 
         commit = _create_upstream_commit(
@@ -311,19 +313,15 @@ class TestCherryPick:
                 "KVM: x86: Check for invalid root after making MMU pages available\n\n"
                 "Check for a stale page fault.\n\n"
                 "Signed-off-by: Sean Christopherson <seanjc@google.com>\n"
-                "Signed-off-by: Paolo Bonzini <pbonzini@redhat.com>\n"
             ),
-            file_content=("// QFQ scheduler\nint qfq_init(void) { return 0; }\n// KVM fix applied\n"),
+            file_content="// QFQ scheduler\nint qfq_init(void) { return 0; }\n// KVM fix applied\n",
             author_name="Sean Christopherson",
             author_email="seanjc@google.com",
         )
 
-        mod.cherry_pick(
-            sha=commit.hexsha,
-            ciq_tags=["cve CVE-2026-64561"],
-            jira_ticket="VULN-195551",
-            ignore_fixes_check=True,
-        )
+        cmd = self._make_cmd(mod)
+        header = CommitHeader(jira="VULN-195551", cve="CVE-2026-64561", commit=commit.hexsha)
+        cmd._cherry_pick(commit_header=header)
 
         msg = repo.head.commit.message
         assert "jira VULN-195551" in msg
@@ -331,38 +329,62 @@ class TestCherryPick:
         assert "commit-author Sean Christopherson <seanjc@google.com>" in msg
         assert f"commit {commit.hexsha}" in msg
         assert f"(cherry picked from commit {commit.hexsha})" in msg
+        # author is resolved from the picked commit into the header
+        assert header.commit_author == "Sean Christopherson <seanjc@google.com>"
 
     def test_cherry_pick_with_cve_bf(self, cherry_pick_env):
-        """Cherry-pick with cve-bf tag, modeled after ciqlts9_6 64a032d7cc69."""
         mod, repo, tmp_path = cherry_pick_env
 
         commit = _create_upstream_commit(
             repo,
             tmp_path,
-            msg=(
-                "proc: fix type confusion in pde_set_flags()\n\n"
-                "Add !S_ISDIR test before calling pde_set_flags().\n\n"
-                "Signed-off-by: wangzijie <wangzijie1@honor.com>\n"
-            ),
+            msg="proc: fix type confusion in pde_set_flags()\n\nAdd !S_ISDIR test.\n\n",
             file_content="// proc fix\nint qfq_init(void) { return 0; }\n",
             author_name="wangzijie",
             author_email="wangzijie1@honor.com",
         )
 
-        mod.cherry_pick(
-            sha=commit.hexsha,
-            ciq_tags=["cve-bf CVE-2025-38653"],
-            jira_ticket="VULN-163195",
-            ignore_fixes_check=True,
-        )
+        cmd = self._make_cmd(mod)
+        header = CommitHeader(jira="VULN-163195", cve_bf="CVE-2025-38653", commit=commit.hexsha)
+        cmd._cherry_pick(commit_header=header)
 
         msg = repo.head.commit.message
         assert "cve-bf CVE-2025-38653" in msg
         assert "jira VULN-163195" in msg
         assert "commit-author wangzijie <wangzijie1@honor.com>" in msg
 
+    def test_cherry_pick_from_commit_source(self, cherry_pick_env):
+        """KERNEL-516: with commit_source_sha set, the source sha is what gets
+        cherry-picked (extract_upstream_name_and_sha routing)."""
+        mod, repo, tmp_path = cherry_pick_env
+
+        source_commit = _create_upstream_commit(
+            repo,
+            tmp_path,
+            msg="authencesn: reject invalid authsize\n\nBody.\n\n",
+            file_content="// centos variant\nint qfq_init(void) { return 0; }\n// fix applied\n",
+            author_name="Yucheng Lu",
+            author_email="kanolyc@gmail.com",
+        )
+
+        cmd = self._make_cmd(mod)
+        header = CommitHeader(
+            jira="VULN-181881",
+            cve_bf="CVE-2026-31431",
+            commit="-",
+            commit_source="centos-stream-9",
+            commit_source_sha=source_commit.hexsha,
+        )
+        cmd._cherry_pick(commit_header=header)
+
+        msg = repo.head.commit.message
+        assert f"(cherry picked from commit {source_commit.hexsha})" in msg
+        assert "commit-source centos-stream-9" in msg
+        assert "commit-author Yucheng Lu <kanolyc@gmail.com>" in msg
+
     def test_cherry_pick_conflict_raises(self, cherry_pick_env):
-        """Conflicting cherry-pick raises CherryPickException, MERGE_MSG has CIQ header."""
+        """Conflicting cherry-pick raises CherryPickException; MERGE_MSG has the
+        standardized header with upstream-diff marker."""
         mod, repo, tmp_path = cherry_pick_env
 
         commit = _create_upstream_commit(
@@ -385,17 +407,13 @@ class TestCherryPick:
         repo.index.add(["net/sched/sch_qfq.c"])
         repo.index.commit("Conflicting change on main")
 
+        cmd = self._make_cmd(mod)
+        header = CommitHeader(jira="VULN-189813", cve="CVE-2026-53264", commit=commit.hexsha)
+
         with pytest.raises(mod.CherryPickException):
-            mod.cherry_pick(
-                sha=commit.hexsha,
-                ciq_tags=["cve CVE-2026-53264"],
-                jira_ticket="VULN-189813",
-                ignore_fixes_check=True,
-            )
+            cmd._cherry_pick(commit_header=header)
 
-        with open(mod.MERGE_MSG) as f:
-            merge_msg = f.read()
-
+        merge_msg = _read_merge_msg(mod)
         assert "jira VULN-189813" in merge_msg
         assert "cve CVE-2026-53264" in merge_msg
         assert "upstream-diff |" in merge_msg
@@ -407,22 +425,14 @@ class TestCherryPick:
         commit = _create_upstream_commit(
             repo,
             tmp_path,
-            msg=(
-                "SUNRPC: introduce cache_check_rcu\n\n"
-                "Prepare patch for rcu context check.\n\n"
-                "Signed-off-by: Yang Erkun <yangerkun@huawei.com>\n"
-            ),
+            msg="SUNRPC: introduce cache_check_rcu\n\nPrepare patch for rcu context check.\n\n",
             file_content="// sunrpc\nint qfq_init(void) { return 0; }\n",
             author_name="Yang Erkun",
             author_email="yangerkun@huawei.com",
         )
 
-        mod.cherry_pick(
-            sha=commit.hexsha,
-            ciq_tags=[],
-            jira_ticket=None,
-            ignore_fixes_check=True,
-        )
+        cmd = self._make_cmd(mod)
+        cmd._cherry_pick(commit_header=CommitHeader(commit=commit.hexsha))
 
         msg = repo.head.commit.message
         assert f"commit {commit.hexsha}" in msg
@@ -431,30 +441,30 @@ class TestCherryPick:
 
 
 # ---------------------------------------------------------------------------
-# check_fixes
+# CherryPickCommand._check_fixes
 # ---------------------------------------------------------------------------
 
 
 class TestCheckFixes:
-    def test_no_fixes_reference_warns(self, cherry_pick_env, caplog):
+    def test_no_fixes_reference_warns(self, cherry_pick_env, command, caplog):
         """Commit without Fixes: reference logs a warning."""
         mod, repo, tmp_path = cherry_pick_env
 
         commit = _create_upstream_commit(
             repo,
             tmp_path,
-            msg="Simple feature\n\nAdd feature.\n\nSigned-off-by: Dev <d@e.com>\n",
+            msg="Simple feature\n\nAdd feature.\n\n",
             file_content="// feature\n",
             author_name="Dev",
             author_email="d@e.com",
         )
 
         with caplog.at_level(logging.WARNING):
-            mod.check_fixes(sha=commit.hexsha, ignore_fixes_check=False)
+            command._check_fixes(sha=commit.hexsha)
 
         assert "no fixes" in caplog.text.lower()
 
-    def test_fixes_present_in_branch_passes(self, cherry_pick_env):
+    def test_fixes_present_in_branch_passes(self, cherry_pick_env, command):
         """Fixes: pointing to initial commit (on current branch) should not raise."""
         mod, repo, tmp_path = cherry_pick_env
 
@@ -464,44 +474,39 @@ class TestCheckFixes:
         commit = _create_upstream_commit(
             repo,
             tmp_path,
-            msg=(f'Fix a regression\n\nFixes: {short_sha} ("Initial QFQ scheduler")\nSigned-off-by: Dev <d@e.com>\n'),
+            msg=(f'Fix a regression\n\nFixes: {short_sha} ("Initial QFQ scheduler")\n'),
             file_content="// regression fix\n",
             author_name="Dev",
             author_email="d@e.com",
         )
 
-        # Should not raise — the referenced commit is on the current branch
-        mod.check_fixes(sha=commit.hexsha, ignore_fixes_check=False)
+        command._check_fixes(sha=commit.hexsha)
 
-    def test_fixes_missing_from_branch_raises(self, cherry_pick_env):
-        """Fixes: pointing to upstream-only commit should raise RuntimeError."""
+    def test_fixes_missing_from_branch_raises(self, cherry_pick_env, command):
+        """Fixes: pointing to an upstream-only commit should raise RuntimeError."""
         mod, repo, tmp_path = cherry_pick_env
         original = repo.active_branch.name
 
-        # Create first upstream commit (the one that will be referenced by Fixes:)
         repo.create_head("upstream-base").checkout()
         (tmp_path / "net" / "sched" / "sch_qfq.c").write_text("// upstream base change\n")
         repo.index.add(["net/sched/sch_qfq.c"])
         base_commit = repo.index.commit(
-            "upstream: introduce feature\n\nNew feature.\n\nSigned-off-by: A <a@b.com>\n",
+            "upstream: introduce feature\n\nNew feature.\n\n",
             author=git.Actor("A", "a@b.com"),
         )
         base_short = base_commit.hexsha[:12]
 
-        # Create second upstream commit that fixes the first
         (tmp_path / "net" / "sched" / "sch_qfq.c").write_text("// upstream fix for base\n")
         repo.index.add(["net/sched/sch_qfq.c"])
         fix_commit = repo.index.commit(
-            f"upstream: fix regression from feature\n\n"
-            f'Fixes: {base_short} ("upstream: introduce feature")\n'
-            f"Signed-off-by: B <b@c.com>\n",
+            f'upstream: fix regression from feature\n\nFixes: {base_short} ("upstream: introduce feature")\n',
             author=git.Actor("B", "b@c.com"),
         )
 
         repo.heads[original].checkout()
 
         with pytest.raises(RuntimeError, match="not part of the tree"):
-            mod.check_fixes(sha=fix_commit.hexsha, ignore_fixes_check=False)
+            command._check_fixes(sha=fix_commit.hexsha)
 
     def test_fixes_missing_ignored_when_flag_set(self, cherry_pick_env, caplog):
         """With ignore_fixes_check=True, missing Fixes: ref warns instead of raising."""
@@ -511,88 +516,465 @@ class TestCheckFixes:
         repo.create_head("upstream-ign").checkout()
         (tmp_path / "net" / "sched" / "sch_qfq.c").write_text("// base\n")
         repo.index.add(["net/sched/sch_qfq.c"])
-        base = repo.index.commit("base\n\nSigned-off-by: A <a@b.com>\n", author=git.Actor("A", "a@b.com"))
+        base = repo.index.commit("base\n\n", author=git.Actor("A", "a@b.com"))
 
         (tmp_path / "net" / "sched" / "sch_qfq.c").write_text("// fix\n")
         repo.index.add(["net/sched/sch_qfq.c"])
-        fix = repo.index.commit(
-            f'fix\n\nFixes: {base.hexsha[:12]} ("base")\nSigned-off-by: B <b@c.com>\n',
-            author=git.Actor("B", "b@c.com"),
-        )
+        fix = repo.index.commit(f'fix\n\nFixes: {base.hexsha[:12]} ("base")\n', author=git.Actor("B", "b@c.com"))
 
         repo.heads[original].checkout()
 
+        cmd = mod.CherryPickCommand(args=make_args(ignore_fixes_check=True))
         with caplog.at_level(logging.WARNING):
-            mod.check_fixes(sha=fix.hexsha, ignore_fixes_check=True)
+            cmd._check_fixes(sha=fix.hexsha)
         # Should not raise
 
 
 # ---------------------------------------------------------------------------
-# update_jira_success / update_jira_failure
+# CherryPickCommand._cherry_pick_fixes
+# ---------------------------------------------------------------------------
+
+
+class TestCherryPickFixes:
+    def test_skipped_without_mainline_sha(self, cherry_pick_env, command):
+        """KERNEL-516: a source-only pick (commit='-') has no mainline sha to
+        search Fixes: for — must skip cleanly, not crash."""
+        mod, _, _ = cherry_pick_env
+
+        header = CommitHeader(jira="VULN-181881", commit="-", commit_source="centos-stream-9")
+        command.full_cherry_pick = MagicMock()
+
+        command._cherry_pick_fixes(original_commit_header=header)
+
+        command.full_cherry_pick.assert_not_called()
+
+    def test_fixes_found_are_picked_as_cve_bf(self, cherry_pick_env, command):
+        """A commit in upstream_ref with Fixes: <mainline sha> is re-picked with
+        the cve tag swapped to cve-bf.
+
+        Note: the branch name must not collide with the repo's default branch
+        (init.defaultBranch may be 'mainline' on some systems).
+        """
+        mod, repo, tmp_path = cherry_pick_env
+        original = repo.active_branch.name
+
+        # The mainline CVE fix, on a dedicated branch used as upstream_ref
+        repo.create_head("upstream-mainline").checkout()
+        (tmp_path / "net" / "sched" / "sch_qfq.c").write_text("// mainline fix\n")
+        repo.index.add(["net/sched/sch_qfq.c"])
+        mainline_fix = repo.index.commit(
+            "net/sched: fix race\n\nFix the race.\n\n",
+            author=git.Actor("Upstream Dev", "up@stream.com"),
+        )
+
+        # A follow-up commit on mainline referencing it via Fixes:
+        (tmp_path / "net" / "sched" / "sch_qfq.c").write_text("// mainline fix + followup\n")
+        repo.index.add(["net/sched/sch_qfq.c"])
+        followup = repo.index.commit(
+            f'net/sched: fix regression from race fix\n\nFixes: {mainline_fix.hexsha[:12]} ("net/sched: fix race")\n',
+            author=git.Actor("Upstream Dev", "up@stream.com"),
+        )
+
+        repo.heads[original].checkout()
+
+        cmd = mod.CherryPickCommand(args=make_args(upstream_ref="upstream-mainline"))
+        cmd.full_cherry_pick = MagicMock()
+
+        header = CommitHeader(jira="VULN-1", cve="CVE-2026-1234", commit=mainline_fix.hexsha)
+        cmd._cherry_pick_fixes(original_commit_header=header)
+
+        assert cmd.full_cherry_pick.call_count == 1
+        bf_header = cmd.full_cherry_pick.call_args.kwargs["commit_header"]
+        assert bf_header.commit == followup.hexsha
+        assert bf_header.cve is None
+        assert bf_header.cve_bf == "CVE-2026-1234"
+
+    def test_no_fixes_no_pick(self, cherry_pick_env, command):
+        """No Fixes: commits in upstream_ref -> nothing re-picked."""
+        mod, repo, tmp_path = cherry_pick_env
+
+        repo.create_head("upstream-empty").checkout()
+        (tmp_path / "net" / "sched" / "sch_qfq.c").write_text("// unrelated\n")
+        repo.index.add(["net/sched/sch_qfq.c"])
+        unrelated = repo.index.commit("unrelated change\n\nNo fixes here.\n\n", author=git.Actor("A", "a@b.com"))
+
+        # back to the original (non-upstream) branch
+        original = [h for h in repo.heads if h.name != "upstream-empty"][0]
+        original.checkout()
+
+        cmd = mod.CherryPickCommand(args=make_args(upstream_ref="upstream-empty"))
+        cmd.full_cherry_pick = MagicMock()
+
+        header = CommitHeader(jira="VULN-1", cve="CVE-2026-1234", commit=unrelated.hexsha)
+        cmd._cherry_pick_fixes(original_commit_header=header)
+
+        cmd.full_cherry_pick.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# CherryPickCommand JIRA updates
 # ---------------------------------------------------------------------------
 
 
 class TestUpdateJira:
     def test_success_dry_run_prints(self, cherry_pick_env, capsys):
         mod, _, _ = cherry_pick_env
-        mod.update_jira_success(
-            jira_instance=MagicMock(),
-            ticket_key="VULN-189406",
-            jira_dry_run=True,
-        )
+        cmd = mod.CherryPickCommand(args=make_args(jira_dry_run=True))
+
+        cmd._update_jira_success(ticket_key="VULN-189406")
+
         out = capsys.readouterr().out
         assert "DRY-RUN" in out
         assert "VULN-189406" in out
 
     def test_success_calls_jira_methods(self, cherry_pick_env):
         mod, _, _ = cherry_pick_env
+        cmd = mod.CherryPickCommand(args=make_args())
         jira = MagicMock()
-        mod.update_jira_success(jira_instance=jira, ticket_key="VULN-189406", jira_dry_run=False)
+        cmd._jira_instance = jira
+
+        cmd._update_jira_success(ticket_key="VULN-189406")
 
         jira.assign_ticket.assert_called_once_with(issue_key="VULN-189406")
-        jira.transition_issue.assert_called_once_with(
-            issue_key="VULN-189406",
-            transition_name="In Progress",
-        )
-        jira.update_labels.assert_called_once_with(
-            issue_key="VULN-189406",
-            labels=["automated-patch-applied"],
-        )
+        jira.transition_issue.assert_called_once_with(issue_key="VULN-189406", transition_name="In Progress")
+        jira.update_labels.assert_called_once_with(issue_key="VULN-189406", labels=["automated-patch-applied"])
         jira.add_worklog.assert_called_once()
 
     def test_success_none_ticket_is_noop(self, cherry_pick_env):
         mod, _, _ = cherry_pick_env
+        cmd = mod.CherryPickCommand(args=make_args())
         jira = MagicMock()
-        mod.update_jira_success(jira_instance=jira, ticket_key=None, jira_dry_run=False)
+        cmd._jira_instance = jira
+
+        cmd._update_jira_success(ticket_key=None)
+
         jira.assign_ticket.assert_not_called()
 
     def test_success_none_jira_is_noop(self, cherry_pick_env):
         mod, _, _ = cherry_pick_env
-        mod.update_jira_success(jira_instance=None, ticket_key="VULN-189406", jira_dry_run=False)
-        # Should not raise
+        cmd = mod.CherryPickCommand(args=make_args())
+        assert cmd._jira_instance is None
+
+        cmd._update_jira_success(ticket_key="VULN-189406")  # should not raise
 
     def test_failure_dry_run_prints(self, cherry_pick_env, capsys):
         mod, _, _ = cherry_pick_env
-        mod.update_jira_failure(
-            jira_instance=MagicMock(),
-            ticket_key="VULN-189406",
-            jira_dry_run=True,
-        )
+        cmd = mod.CherryPickCommand(args=make_args(jira_dry_run=True))
+
+        cmd._update_jira_failure(ticket_key="VULN-189406")
+
         out = capsys.readouterr().out
         assert "DRY-RUN" in out
         assert "automated-patch-failed" in out
 
     def test_failure_calls_update_labels(self, cherry_pick_env):
         mod, _, _ = cherry_pick_env
+        cmd = mod.CherryPickCommand(args=make_args())
         jira = MagicMock()
-        mod.update_jira_failure(jira_instance=jira, ticket_key="VULN-189406", jira_dry_run=False)
-        jira.update_labels.assert_called_once_with(
-            issue_key="VULN-189406",
-            labels=["automated-patch-failed"],
-        )
+        cmd._jira_instance = jira
+
+        cmd._update_jira_failure(ticket_key="VULN-189406")
+
+        jira.update_labels.assert_called_once_with(issue_key="VULN-189406", labels=["automated-patch-failed"])
 
     def test_failure_none_ticket_is_noop(self, cherry_pick_env):
         mod, _, _ = cherry_pick_env
+        cmd = mod.CherryPickCommand(args=make_args())
         jira = MagicMock()
-        mod.update_jira_failure(jira_instance=jira, ticket_key=None, jira_dry_run=False)
+        cmd._jira_instance = jira
+
+        cmd._update_jira_failure(ticket_key=None)
+
         jira.update_labels.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# from_argsparse_to_commit_header
+# ---------------------------------------------------------------------------
+
+
+class TestFromArgsparseToCommitHeader:
+    def test_ciq_tags_parsed_into_fields(self, cherry_pick_env):
+        mod, _, _ = cherry_pick_env
+
+        args = make_args(commit=None, jira="VULN-1", ciq_tag="cve CVE-2026-52976")
+        header = mod.from_argsparse_to_commit_header(args)
+
+        assert header.cve == "CVE-2026-52976"
+        assert header.jira == "VULN-1"
+
+    def test_ciq_tags_with_comma_and_space(self, cherry_pick_env):
+        """'cve CVE-1, cve-pre CVE-2' — the comma form must not crash on the
+        leading space of the second tag."""
+        mod, _, _ = cherry_pick_env
+
+        args = make_args(ciq_tag="cve CVE-2026-52976, cve-pre CVE-2024-53216")
+        header = mod.from_argsparse_to_commit_header(args)
+
+        assert header.cve == "CVE-2026-52976"
+        assert header.cve_pre == "CVE-2024-53216"
+
+    def test_multi_word_tag_value(self, cherry_pick_env):
+        """Tag values containing spaces must be kept whole, not crash the split."""
+        mod, _, _ = cherry_pick_env
+
+        args = make_args(ciq_tag="cve CVE-2026-52976 with suffix")
+        header = mod.from_argsparse_to_commit_header(args)
+
+        assert header.cve == "CVE-2026-52976 with suffix"
+
+    def test_commit_short_sha_expanded(self, cherry_pick_env):
+        mod, repo, _ = cherry_pick_env
+
+        args = make_args(commit=repo.head.commit.hexsha[:12])
+        header = mod.from_argsparse_to_commit_header(args)
+
+        assert header.commit == repo.head.commit.hexsha
+
+    def test_commit_source_sha_expanded_and_remote_fetched(self, cherry_pick_env, monkeypatch):
+        mod, repo, _ = cherry_pick_env
+
+        source_sha = repo.head.commit.hexsha
+
+        class StubUpstreamRemotes:
+            last_instance = None
+
+            def __init__(self):
+                self.fetch_mock = MagicMock()
+                StubUpstreamRemotes.last_instance = self
+
+            @classmethod
+            def from_yaml(cls):
+                return cls()
+
+            def fetch_for_commit_source(self, commit_source, sha, repo_dir):
+                self.fetch_mock(commit_source=commit_source, sha=sha, repo_dir=repo_dir)
+
+        monkeypatch.setattr(mod, "UpstreamRemotes", StubUpstreamRemotes)
+
+        args = make_args(commit="-", commit_source="centos-stream-9", commit_source_sha=source_sha[:12])
+        header = mod.from_argsparse_to_commit_header(args)
+
+        assert StubUpstreamRemotes.last_instance.fetch_mock.call_count == 1
+        fetch_kwargs = StubUpstreamRemotes.last_instance.fetch_mock.call_args.kwargs
+        assert fetch_kwargs["commit_source"] == "centos-stream-9"
+        assert fetch_kwargs["sha"] == source_sha[:12]
+        assert header.commit_source == "centos-stream-9"
+        assert header.commit_source_sha == source_sha
+
+    def test_no_fetch_without_both_source_args(self, cherry_pick_env, monkeypatch):
+        """Only --commit-source (no sha) must not trigger a remote fetch."""
+        mod, _, _ = cherry_pick_env
+
+        class StubUpstreamRemotes:
+            instances = []
+
+            def __init__(self):
+                self.fetch_mock = MagicMock()
+                StubUpstreamRemotes.instances.append(self)
+
+            @classmethod
+            def from_yaml(cls):
+                return cls()
+
+            def fetch_for_commit_source(self, commit_source, sha, repo_dir):
+                self.fetch_mock(commit_source=commit_source, sha=sha, repo_dir=repo_dir)
+
+        monkeypatch.setattr(mod, "UpstreamRemotes", StubUpstreamRemotes)
+
+        args = make_args(commit_source="centos-stream-9")
+        header = mod.from_argsparse_to_commit_header(args)
+
+        assert StubUpstreamRemotes.instances[-1].fetch_mock.call_count == 0
+        assert header.commit_source == "centos-stream-9"
+        assert header.commit_source_sha is None
+
+
+# ---------------------------------------------------------------------------
+# --sha alias for --commit
+# ---------------------------------------------------------------------------
+
+
+class TestShaAlias:
+    """--sha is accepted as a deprecated alias for --commit.
+
+    Keeps existing callers working, notably kernel-tools'
+    cve_remediation_automation.py which still invokes
+    `ciq-cherry-pick.py --sha <sha> ...`.
+    """
+
+    def _build_parser(self, mod):
+        """Rebuild the script's argument parser (kept close to __main__)."""
+        import argparse
+
+        parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
+        parser.add_argument("--commit", dest="commit", required=False, help="Target SHA1 to cherry-pick")
+        parser.add_argument("--sha", dest="sha", required=False, help="Deprecated alias for --commit")
+        parser.add_argument("--jira")
+        parser.add_argument("--ciq-tag")
+        parser.add_argument("--upstream-ref", default="origin/kernel-mainline")
+        parser.add_argument("--commit-source")
+        parser.add_argument("--commit-source-sha")
+        parser.add_argument("--ignore-fixes-check", action="store_true")
+        parser.add_argument("--pick-fixes", action="store_true")
+        parser.add_argument("--jira-url")
+        parser.add_argument("--jira-user")
+        parser.add_argument("--jira-key")
+        parser.add_argument("--jira-dry-run", action="store_true", default=False)
+        parser.add_argument("--vulns-dir", default="../vulns")
+        return parser
+
+    def test_sha_flag_sets_commit(self, cherry_pick_env):
+        mod, repo, _ = cherry_pick_env
+
+        sha = repo.head.commit.hexsha
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--sha", sha])
+        mod.resolve_sha_alias(args=args, parser=parser)
+
+        assert args.commit == sha
+        assert args.sha is None
+
+    def test_commit_flag_sets_commit(self, cherry_pick_env):
+        mod, repo, _ = cherry_pick_env
+
+        sha = repo.head.commit.hexsha
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--commit", sha])
+        mod.resolve_sha_alias(args=args, parser=parser)
+
+        assert args.commit == sha
+
+    def test_sha_and_commit_same_value_ok(self, cherry_pick_env):
+        mod, repo, _ = cherry_pick_env
+
+        sha = repo.head.commit.hexsha
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--commit", sha, "--sha", sha])
+        mod.resolve_sha_alias(args=args, parser=parser)
+
+        assert args.commit == sha
+
+    def test_sha_and_commit_conflicting_values_rejected(self, cherry_pick_env, capsys):
+        mod, _, _ = cherry_pick_env
+
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--commit", "aaa", "--sha", "bbb"])
+
+        with pytest.raises(SystemExit):
+            mod.resolve_sha_alias(args=args, parser=parser)
+
+        assert "--commit and --sha are aliases" in capsys.readouterr().err
+
+    def test_neither_flag_set(self, cherry_pick_env):
+        """Neither --commit nor --sha: header commit stays unset (current behavior)."""
+        mod, _, _ = cherry_pick_env
+
+        parser = self._build_parser(mod)
+        args = parser.parse_args([])
+        mod.resolve_sha_alias(args=args, parser=parser)
+
+        assert args.commit is None
+
+    def test_sha_alias_end_to_end_header(self, cherry_pick_env):
+        """--sha through resolve_sha_alias + from_argsparse_to_commit_header lands in the header."""
+        mod, repo, _ = cherry_pick_env
+
+        sha = repo.head.commit.hexsha
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--sha", sha])
+        mod.resolve_sha_alias(args=args, parser=parser)
+        args.jira = "VULN-1"
+
+        header = mod.from_argsparse_to_commit_header(args)
+
+        assert header.commit == sha
+        assert header.jira == "VULN-1"
+
+
+# ---------------------------------------------------------------------------
+# --ticket alias for --jira
+# ---------------------------------------------------------------------------
+
+
+class TestTicketAlias:
+    """--ticket is accepted as a deprecated alias for --jira.
+
+    kernel-tools' cve_remediation_automation.py still invokes
+    `ciq-cherry-pick.py --ticket <key> ...`.
+    """
+
+    def _build_parser(self, mod):
+        import argparse
+
+        parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
+        parser.add_argument("--commit", dest="commit", required=False)
+        parser.add_argument("--sha", dest="sha", required=False)
+        parser.add_argument("--jira", dest="jira", required=False)
+        parser.add_argument("--ticket", dest="ticket", required=False)
+        parser.add_argument("--ciq-tag")
+        parser.add_argument("--upstream-ref", default="origin/kernel-mainline")
+        parser.add_argument("--commit-source")
+        parser.add_argument("--commit-source-sha")
+        parser.add_argument("--ignore-fixes-check", action="store_true")
+        parser.add_argument("--pick-fixes", action="store_true")
+        parser.add_argument("--jira-url")
+        parser.add_argument("--jira-user")
+        parser.add_argument("--jira-key")
+        parser.add_argument("--jira-dry-run", action="store_true", default=False)
+        parser.add_argument("--vulns-dir", default="../vulns")
+        return parser
+
+    def test_ticket_flag_sets_jira(self, cherry_pick_env):
+        mod, _, _ = cherry_pick_env
+
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--ticket", "VULN-185809"])
+        mod.resolve_ticket_alias(args=args, parser=parser)
+
+        assert args.jira == "VULN-185809"
+        assert args.ticket is None
+
+    def test_jira_flag_sets_jira(self, cherry_pick_env):
+        mod, _, _ = cherry_pick_env
+
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--jira", "VULN-185809"])
+        mod.resolve_ticket_alias(args=args, parser=parser)
+
+        assert args.jira == "VULN-185809"
+
+    def test_ticket_and_jira_same_value_ok(self, cherry_pick_env):
+        mod, _, _ = cherry_pick_env
+
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--jira", "VULN-1", "--ticket", "VULN-1"])
+        mod.resolve_ticket_alias(args=args, parser=parser)
+
+        assert args.jira == "VULN-1"
+
+    def test_ticket_and_jira_conflicting_values_rejected(self, cherry_pick_env, capsys):
+        mod, _, _ = cherry_pick_env
+
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--jira", "VULN-1", "--ticket", "VULN-2"])
+
+        with pytest.raises(SystemExit):
+            mod.resolve_ticket_alias(args=args, parser=parser)
+
+        assert "--jira and --ticket are aliases" in capsys.readouterr().err
+
+    def test_ticket_alias_end_to_end_header(self, cherry_pick_env):
+        """--ticket through the aliases lands as the jira tag in the header."""
+        mod, repo, _ = cherry_pick_env
+
+        sha = repo.head.commit.hexsha
+        parser = self._build_parser(mod)
+        args = parser.parse_args(["--commit", sha, "--ticket", "VULN-185809"])
+        mod.resolve_sha_alias(args=args, parser=parser)
+        mod.resolve_ticket_alias(args=args, parser=parser)
+
+        header = mod.from_argsparse_to_commit_header(args)
+
+        assert header.commit == sha
+        assert header.jira == "VULN-185809"
