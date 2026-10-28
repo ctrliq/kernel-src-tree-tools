@@ -1,8 +1,8 @@
 common_repos:
   dist-git-tree-fips: git@gitlab.com:ctrl-iq-public/fips/src/kernel.git
   dist-git-tree: git@github.com:ciq-rocky-lts/kernel.git
-  kernel-src-tree: https://github.com/ctrliq/kernel-src-tree.git
-  kernel-src-tree-tools: https://github.com/ctrliq/kernel-src-tree-tools.git
+  kernel-src-tree: git@github.com:ctrliq/kernel-src-tree.git
+  kernel-src-tree-tools: git@github.com:ctrliq/kernel-src-tree-tools.git
 
 kernels:
   cbr-7.9:
