@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+import sys
 
 from git import GitCommandError, Repo
 
@@ -102,6 +103,7 @@ class ContentRelease:
         staging_branch = f"{{automation_tmp}}_{src_branch_name}"
 
         cmd = [
+            sys.executable,
             str(mkdistgitdiff_script),
             "--srcgit",
             str(kernel_workspace_obj.src_worktree.folder.absolute()),
