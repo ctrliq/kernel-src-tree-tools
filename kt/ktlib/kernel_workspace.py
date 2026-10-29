@@ -233,9 +233,13 @@ class KernelWorkspace:
         default_remote = "origin"
 
         dist_folder = folder / Path(Constants.DIST_TREE)
-        dist_local_branch = f"{{{user}}}_{kernel_info.dist_git_branch}"
+        # Keep the remote branch last: GHA matches branches on *_<remote branch>
         if extra:
-            dist_local_branch += f"_{extra}"
+            branch_prefix = f"{{{user}}}_{extra}_"
+        else:
+            branch_prefix = f"{{{user}}}_"
+
+        dist_local_branch = f"{branch_prefix}{kernel_info.dist_git_branch}"
 
         dist_worktree = RepoWorktree(
             source_root=Repo(kernel_info.dist_git_root.folder),
@@ -247,9 +251,7 @@ class KernelWorkspace:
         )
 
         src_folder = folder / Path(Constants.SRC_TREE)
-        src_local_branch = f"{{{user}}}_{kernel_info.src_tree_branch}"
-        if extra:
-            src_local_branch += f"_{extra}"
+        src_local_branch = f"{branch_prefix}{kernel_info.src_tree_branch}"
 
         src_worktree = RepoWorktree(
             source_root=Repo(kernel_info.src_tree_root.folder),
