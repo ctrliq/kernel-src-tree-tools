@@ -34,7 +34,8 @@ $ kt checkout lts-9.2 --cleanup -c
 $ kt checkout lts-9.2 --cleanup --change-dir
 \b
 $ kt checkout lts-9.2 -e CVE-2022-49909
-Will create folder lts-9.2_CVE-2022-49909 instead of lts-9.2.
+Will create folder lts-9.2_CVE-2022-49909 instead of lts-9.2,
+and branch {<user>}_CVE-2022-49909_<branch>.
 \b
 $ kt checkout cbr-7.9 --no-worktree
 Will not create worktrees for CentOS7 bridge.
