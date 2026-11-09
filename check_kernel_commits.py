@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import re
 import subprocess
 import sys
 import textwrap
@@ -15,6 +14,7 @@ from kt.ktlib.ciq_helpers import (
     CIQ_run_git,
     CIQ_setup_vulns_repo,
 )
+from kt.ktlib.commit_header import CommitHeader
 
 
 def ref_exists(repo, ref):
@@ -57,15 +57,6 @@ def wrap_paragraph(text, width=80, initial_indent="", subsequent_indent=""):
         break_on_hyphens=False,
     )
     return wrapper.fill(text)
-
-
-def extract_cve_from_message(msg):
-    """Extract CVE reference from commit message. Returns CVE ID or None.
-    Only matches 'cve CVE-2025-12345', ignores 'cve-bf' and 'cve-pre' variants."""
-    match = re.search(r"(?<!\S)cve\s+(CVE-\d{4}-\d+)", msg, re.IGNORECASE)
-    if match:
-        return match.group(1).upper()
-    return None
 
 
 def main():
@@ -134,8 +125,19 @@ def main():
         short_hash, subject = get_short_hash_and_subject(args.repo, sha)
         pr_commit_desc = f"{short_hash} ({subject})"
         msg = CIQ_get_commit_body(args.repo, sha)
-        upstream_hashes = re.findall(r"^commit\s+([0-9a-fA-F]{40})", msg, re.MULTILINE)
-        for uhash in upstream_hashes:
+        try:
+            commit_header = CommitHeader.from_commit_body(commit_body=msg)
+        except Exception as e:
+            print(
+                f"[WARN] Could not parse commit header for {pr_commit_desc}: {e}; skipping header checks for this commit"
+            )
+            continue
+
+        uhashes = commit_header.upstream_commits()
+        if not uhashes:
+            print(f"[NOTE]: Mainline commit not present for {pr_commit_desc}, no extra checks for this commit")
+            continue
+        for uhash in uhashes:
             short_uhash = uhash[:12]
             # Ensure the referenced commit in the PR actually exists in the upstream ref.
             exists = hash_exists_in_mainline(args.repo, upstream_ref, uhash)
@@ -158,134 +160,158 @@ def main():
                         )  # spaces for '[NOTFOUND] '
                     )
                     out_lines.append("")  # blank line
-                continue
+            else:
+                # Find commits that contains Fixes: <uhash> in upstream_ref
+                fixes = CIQ_find_fixes_in_mainline(repo=args.repo, upstream_ref=upstream_ref, hash_=uhash)
 
-            # Find commits that contains Fixes: <uhash> in upstream_ref
-            fixes = CIQ_find_fixes_in_mainline(repo=args.repo, upstream_ref=upstream_ref, hash_=uhash)
+                # Filter the above commits if they were unapplied in the pr_branch (whole fetched history is used)
+                fixes_unapplied_without_limit = CIQ_filter_unapplied_commits(
+                    repo=args.repo, pr_branch=args.pr_branch, commits=fixes
+                )
 
-            # Filter the above commits if they were unapplied in the pr_branch (whole fetched history is used)
-            fixes_unapplied_without_limit = CIQ_filter_unapplied_commits(
-                repo=args.repo, pr_branch=args.pr_branch, commits=fixes
-            )
+                # Filter the above commits if they were unapplied in the pr_branch (oldest_pr_commit..newest_pr_commit interval is used)
+                fixes_unapplied_with_limit = CIQ_filter_unapplied_commits(
+                    repo=args.repo,
+                    pr_branch=args.pr_branch,
+                    commits=fixes,
+                    interval=(oldest_pr_commit, newest_pr_commit),
+                )
 
-            # Filter the above commits if they were unapplied in the pr_branch (oldest_pr_commit..newest_pr_commit interval is used)
-            fixes_unapplied_with_limit = CIQ_filter_unapplied_commits(
-                repo=args.repo, pr_branch=args.pr_branch, commits=fixes, interval=(oldest_pr_commit, newest_pr_commit)
-            )
-
-            # Issue a warning if we found that a commit that contains Fixes: <uhash> has been applied before <uhash>
-            # Very specific case, but check this PR where it did happen https://github.com/ctrliq/kernel-src-tree/pull/1212#issuecomment-4421837799
-            # It is up to the developer to assess the situation if this happens. In the example case, a commit X was pushed, then it was reverted by commit Y,
-            # then commit X was pushed again but automation locally did not flag that it was reverted before because its dependency Y appeared to have been applied
-            # in the local tree.
-            fixes_applied_before_commit = set(fixes_unapplied_with_limit) - set(fixes_unapplied_without_limit)
-            if fixes_applied_before_commit:
-                # Build the fixes display text
-                fixes_lines = []
-                for fix_hash, display_str in fixes_applied_before_commit:
-                    fixes_lines.append(display_str)
-
-                fixes_text = "\n".join(fixes_lines)
-                any_findings = True
-                if args.markdown:
-                    fixes_block = "    " + fixes_text.replace("\n", "\n    ")
-                    out_lines.append(
-                        f"- ❗ PR commit `{pr_commit_desc}` references upstream commit  \n"
-                        f"  `{short_uhash}` which has been referenced by a `Fixes:` tag in the upstream  \n"
-                        f"  Linux kernel:\n\n"
-                        f"```text\n{fixes_block}\n```\n"
-                        "   was applied after its deps, not before\n"
-                    )
-                else:
-                    prefix = "[FIXES-WRONG-ORDER] "
-                    header = (
-                        f"{prefix}PR commit {pr_commit_desc} references upstream commit "
-                        f"{short_uhash}, which has Fixes tags:"
-                    )
-                    out_lines.append(
-                        wrap_paragraph(
-                            header, width=80, initial_indent="", subsequent_indent=" " * len(prefix)
-                        )  # spaces for '[FIXES-WRONG-ORDER] '
-                    )
-                    out_lines.append("")  # blank line after 'Fixes tags:'
-                    for line in fixes_text.splitlines():
-                        out_lines.append("    " + line)
-
-                    out_lines.append(
-                        wrap_paragraph(
-                            text="was applied after its deps, not before\n",
-                            initial_indent=" " * len(prefix),
-                        )
-                    )
-                    out_lines.append("")  # blank line
-
-            # We continue the usual checks for fixes that were unapplied after the commit of interest
-            fixes = fixes_unapplied_with_limit
-            if fixes:
-                any_findings = True
-
-                # Check CVEs for bugfix commits if enabled
-                fix_cves = {}
-                if args.check_cves:
-                    for fix_hash, fix_display in fixes:
-                        bugfix_cve = CIQ_find_matching_cve(vulns_repo=vulns_repo, kernel_repo=args.repo, hash_=fix_hash)
-                        if bugfix_cve:
-                            fix_cves[fix_hash] = bugfix_cve
-
-                # Build the fixes display text with CVE info
-                fixes_lines = []
-                for fix_hash, display_str in fixes:
-                    if fix_hash in fix_cves:
-                        fixes_lines.append(f"{display_str} ({fix_cves[fix_hash]})")
-                    else:
+                # Issue a warning if we found that a commit that contains Fixes: <uhash> has been applied before <uhash>
+                # Very specific case, but check this PR where it did happen https://github.com/ctrliq/kernel-src-tree/pull/1212#issuecomment-4421837799
+                # It is up to the developer to assess the situation if this happens. In the example case, a commit X was pushed, then it was reverted by commit Y,
+                # then commit X was pushed again but automation locally did not flag that it was reverted before because its dependency Y appeared to have been applied
+                # in the local tree.
+                fixes_applied_before_commit = set(fixes_unapplied_with_limit) - set(fixes_unapplied_without_limit)
+                if fixes_applied_before_commit:
+                    # Build the fixes display text
+                    fixes_lines = []
+                    for fix_hash, display_str in fixes_applied_before_commit:
                         fixes_lines.append(display_str)
-                fixes_text = "\n".join(fixes_lines)
 
-                if args.markdown:
-                    fixes_block = "    " + fixes_text.replace("\n", "\n    ")
-                    out_lines.append(
-                        f"- ⚠️ PR commit `{pr_commit_desc}` references upstream commit  \n"
-                        f"  `{short_uhash}` which has been referenced by a `Fixes:` tag in the upstream  \n"
-                        f"  Linux kernel:\n\n"
-                        f"```text\n{fixes_block}\n```\n"
-                    )
-                else:
-                    prefix = "[FIXES] "
-                    header = (
-                        f"{prefix}PR commit {pr_commit_desc} references upstream commit "
-                        f"{short_uhash}, which has Fixes tags:"
-                    )
-                    out_lines.append(
-                        wrap_paragraph(
-                            header, width=80, initial_indent="", subsequent_indent=" " * len(prefix)
-                        )  # spaces for '[FIXES] '
-                    )
-                    out_lines.append("")  # blank line after 'Fixes tags:'
-                    for line in fixes_text.splitlines():
-                        out_lines.append("    " + line)
-                    out_lines.append("")  # blank line
+                    fixes_text = "\n".join(fixes_lines)
+                    any_findings = True
+                    if args.markdown:
+                        fixes_block = "    " + fixes_text.replace("\n", "\n    ")
+                        out_lines.append(
+                            f"- ❗ PR commit `{pr_commit_desc}` references upstream commit  \n"
+                            f"  `{short_uhash}` which has been referenced by a `Fixes:` tag in the upstream  \n"
+                            f"  Linux kernel:\n\n"
+                            f"```text\n{fixes_block}\n```\n"
+                            "   was applied after its deps, not before\n"
+                        )
+                    else:
+                        prefix = "[FIXES-WRONG-ORDER] "
+                        header = (
+                            f"{prefix}PR commit {pr_commit_desc} references upstream commit "
+                            f"{short_uhash}, which has Fixes tags:"
+                        )
+                        out_lines.append(
+                            wrap_paragraph(
+                                header, width=80, initial_indent="", subsequent_indent=" " * len(prefix)
+                            )  # spaces for '[FIXES-WRONG-ORDER] '
+                        )
+                        out_lines.append("")  # blank line after 'Fixes tags:'
+                        for line in fixes_text.splitlines():
+                            out_lines.append("    " + line)
 
-            # Check CVE if enabled
-            if args.check_cves:
-                cve_id = extract_cve_from_message(msg)
+                        out_lines.append(
+                            wrap_paragraph(
+                                text="was applied after its deps, not before\n",
+                                initial_indent=" " * len(prefix),
+                            )
+                        )
+                        out_lines.append("")  # blank line
 
-                # Check if the upstream commit has a CVE associated with it
-                try:
-                    found_cve = CIQ_find_matching_cve(vulns_repo=vulns_repo, kernel_repo=args.repo, hash_=uhash)
-                    if found_cve:
-                        if cve_id:
-                            # PR commit has a CVE reference - check if it matches
-                            if found_cve != cve_id:
+                # We continue the usual checks for fixes that were unapplied after the commit of interest
+                fixes = fixes_unapplied_with_limit
+                if fixes:
+                    any_findings = True
+
+                    # Check CVEs for bugfix commits if enabled
+                    fix_cves = {}
+                    if args.check_cves:
+                        for fix_hash, fix_display in fixes:
+                            bugfix_cve = CIQ_find_matching_cve(
+                                vulns_repo=vulns_repo, kernel_repo=args.repo, hash_=fix_hash
+                            )
+                            if bugfix_cve:
+                                fix_cves[fix_hash] = bugfix_cve
+
+                    # Build the fixes display text with CVE info
+                    fixes_lines = []
+                    for fix_hash, display_str in fixes:
+                        if fix_hash in fix_cves:
+                            fixes_lines.append(f"{display_str} ({fix_cves[fix_hash]})")
+                        else:
+                            fixes_lines.append(display_str)
+                    fixes_text = "\n".join(fixes_lines)
+
+                    if args.markdown:
+                        fixes_block = "    " + fixes_text.replace("\n", "\n    ")
+                        out_lines.append(
+                            f"- ⚠️ PR commit `{pr_commit_desc}` references upstream commit  \n"
+                            f"  `{short_uhash}` which has been referenced by a `Fixes:` tag in the upstream  \n"
+                            f"  Linux kernel:\n\n"
+                            f"```text\n{fixes_block}\n```\n"
+                        )
+                    else:
+                        prefix = "[FIXES] "
+                        header = (
+                            f"{prefix}PR commit {pr_commit_desc} references upstream commit "
+                            f"{short_uhash}, which has Fixes tags:"
+                        )
+                        out_lines.append(
+                            wrap_paragraph(
+                                header, width=80, initial_indent="", subsequent_indent=" " * len(prefix)
+                            )  # spaces for '[FIXES] '
+                        )
+                        out_lines.append("")  # blank line after 'Fixes tags:'
+                        for line in fixes_text.splitlines():
+                            out_lines.append("    " + line)
+                        out_lines.append("")  # blank line
+
+                # Check CVE if enabled
+                if args.check_cves:
+                    cve_id = commit_header.cve
+
+                    # Check if the upstream commit has a CVE associated with it
+                    try:
+                        found_cve = CIQ_find_matching_cve(vulns_repo=vulns_repo, kernel_repo=args.repo, hash_=uhash)
+                        if found_cve:
+                            if cve_id:
+                                # PR commit has a CVE reference - check if it matches
+                                if found_cve != cve_id:
+                                    any_findings = True
+                                    if args.markdown:
+                                        out_lines.append(
+                                            f"- ❌ PR commit `{pr_commit_desc}` references `{cve_id}` but  \n"
+                                            f"  upstream commit `{short_uhash}` is associated with `{found_cve}`\n"
+                                        )
+                                    else:
+                                        prefix = "[CVE-MISMATCH] "
+                                        header = (
+                                            f"{prefix}PR commit {pr_commit_desc} references {cve_id} but "
+                                            f"upstream commit {short_uhash} is associated with {found_cve}"
+                                        )
+                                        out_lines.append(
+                                            wrap_paragraph(
+                                                header, width=80, initial_indent="", subsequent_indent=" " * len(prefix)
+                                            )
+                                        )
+                                        out_lines.append("")  # blank line
+                            else:
+                                # PR commit doesn't reference a CVE, but upstream has one
                                 any_findings = True
                                 if args.markdown:
                                     out_lines.append(
-                                        f"- ❌ PR commit `{pr_commit_desc}` references `{cve_id}` but  \n"
+                                        f"- ⚠️ PR commit `{pr_commit_desc}` does not reference a CVE but  \n"
                                         f"  upstream commit `{short_uhash}` is associated with `{found_cve}`\n"
                                     )
                                 else:
-                                    prefix = "[CVE-MISMATCH] "
+                                    prefix = "[CVE-MISSING] "
                                     header = (
-                                        f"{prefix}PR commit {pr_commit_desc} references {cve_id} but "
+                                        f"{prefix}PR commit {pr_commit_desc} does not reference a CVE but "
                                         f"upstream commit {short_uhash} is associated with {found_cve}"
                                     )
                                     out_lines.append(
@@ -295,40 +321,40 @@ def main():
                                     )
                                     out_lines.append("")  # blank line
                         else:
-                            # PR commit doesn't reference a CVE, but upstream has one
-                            any_findings = True
-                            if args.markdown:
-                                out_lines.append(
-                                    f"- ⚠️ PR commit `{pr_commit_desc}` does not reference a CVE but  \n"
-                                    f"  upstream commit `{short_uhash}` is associated with `{found_cve}`\n"
-                                )
-                            else:
-                                prefix = "[CVE-MISSING] "
-                                header = (
-                                    f"{prefix}PR commit {pr_commit_desc} does not reference a CVE but "
-                                    f"upstream commit {short_uhash} is associated with {found_cve}"
-                                )
-                                out_lines.append(
-                                    wrap_paragraph(
-                                        header, width=80, initial_indent="", subsequent_indent=" " * len(prefix)
+                            # The upstream commit has no CVE assigned
+                            if cve_id:
+                                # PR commit claims a CVE but upstream has none
+                                any_findings = True
+                                if args.markdown:
+                                    out_lines.append(
+                                        f"- ❌ PR commit `{pr_commit_desc}` references `{cve_id}` but  \n"
+                                        f"  upstream commit `{short_uhash}` has no CVE assigned\n"
                                     )
-                                )
-                                out_lines.append("")  # blank line
-                    else:
-                        # The upstream commit has no CVE assigned
+                                else:
+                                    prefix = "[CVE-NOTFOUND] "
+                                    header = (
+                                        f"{prefix}PR commit {pr_commit_desc} references {cve_id} but "
+                                        f"upstream commit {short_uhash} has no CVE assigned"
+                                    )
+                                    out_lines.append(
+                                        wrap_paragraph(
+                                            header, width=80, initial_indent="", subsequent_indent=" " * len(prefix)
+                                        )
+                                    )
+                                    out_lines.append("")  # blank line
+                    except (subprocess.SubprocessError, OSError) as e:
+                        # Error running cve_search
                         if cve_id:
-                            # PR commit claims a CVE but upstream has none
                             any_findings = True
                             if args.markdown:
                                 out_lines.append(
-                                    f"- ❌ PR commit `{pr_commit_desc}` references `{cve_id}` but  \n"
-                                    f"  upstream commit `{short_uhash}` has no CVE assigned\n"
+                                    f"- ⚠️ PR commit `{pr_commit_desc}` references `{cve_id}` but  \n"
+                                    f"  failed to verify: {e}\n"
                                 )
                             else:
-                                prefix = "[CVE-NOTFOUND] "
+                                prefix = "[CVE-ERROR] "
                                 header = (
-                                    f"{prefix}PR commit {pr_commit_desc} references {cve_id} but "
-                                    f"upstream commit {short_uhash} has no CVE assigned"
+                                    f"{prefix}PR commit {pr_commit_desc} references {cve_id} but failed to verify: {e}"
                                 )
                                 out_lines.append(
                                     wrap_paragraph(
@@ -336,22 +362,6 @@ def main():
                                     )
                                 )
                                 out_lines.append("")  # blank line
-                except (subprocess.SubprocessError, OSError) as e:
-                    # Error running cve_search
-                    if cve_id:
-                        any_findings = True
-                        if args.markdown:
-                            out_lines.append(
-                                f"- ⚠️ PR commit `{pr_commit_desc}` references `{cve_id}` but  \n"
-                                f"  failed to verify: {e}\n"
-                            )
-                        else:
-                            prefix = "[CVE-ERROR] "
-                            header = f"{prefix}PR commit {pr_commit_desc} references {cve_id} but failed to verify: {e}"
-                            out_lines.append(
-                                wrap_paragraph(header, width=80, initial_indent="", subsequent_indent=" " * len(prefix))
-                            )
-                            out_lines.append("")  # blank line
 
     if any_findings:
         if args.markdown:

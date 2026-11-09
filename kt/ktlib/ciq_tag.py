@@ -33,7 +33,9 @@ def keyword_regex_seeker(keyword_regex):
     def seeker(string):
         logger.debug(f"Searched text: {repr(string)}")
         logger.debug(f"Regex: {repr(keyword_regex)}")
-        m = re.search(keyword_regex, string, re.MULTILINE)
+        # Case-insensitive: the pre-library helpers matched tags with
+        # re.IGNORECASE (e.g. 'Cve CVE-2026-1234'), keep that tolerance.
+        m = re.search(keyword_regex, string, re.MULTILINE | re.IGNORECASE)
         logger.debug(f"Result: {m}")
         return (m.start(), m.end(1), m.end()) if m else None
 
@@ -76,6 +78,9 @@ class CiqTag(Enum):
     REBUILD_FUZZ = ["Rebuild_FUZZ"]
     COMMIT_AUTHOR = ["commit-author"]
     COMMIT = ["commit"]
+    COMMIT_SOURCE = ["commit-source"]
+    COMMIT_SOURCE_SHA = ["commit-source-sha"]
+    COMMIT_SOURCE_AUTHOR = ["commit-source-author"]
     EMPTY_COMMIT = (["Empty-Commit"], True)
     UPSTREAM_DIFF = (["upstream-diff"], True)
 

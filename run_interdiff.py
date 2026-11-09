@@ -2,10 +2,14 @@
 
 import argparse
 import os
-import re
 import subprocess
 import sys
 import tempfile
+
+import yaml
+
+from kt.ktlib.commit_header import CommitHeader
+from kt.ktlib.git_remote import UpstreamRemotes
 
 
 def run_git(repo, args):
@@ -50,15 +54,6 @@ def get_short_hash_and_subject(repo, sha):
         return short_hash, subject
     except RuntimeError as e:
         raise RuntimeError(f"Failed to get short hash and subject for {sha}: {e}")
-
-
-def extract_upstream_hash(msg):
-    """Extract the upstream commit hash from a commit message.
-    Looks for lines like 'commit <hash>' in the commit message."""
-    match = re.search(r"^commit\s+([0-9a-fA-F]{12,40})", msg, re.MULTILINE)
-    if match:
-        return match.group(1)
-    return None
 
 
 def run_interdiff(repo, backport_sha, upstream_sha, interdiff_path):
@@ -159,6 +154,15 @@ def main():
         print("Please fetch or create the required references before running this script.")
         sys.exit(1)
 
+    # Optional: source provenance fetching. A missing or invalid
+    # upstream_sources.yaml only disables fetching for alternate commit
+    # sources; mainline-only runs are unaffected.
+    try:
+        upstream_remotes = UpstreamRemotes.from_yaml()
+    except (OSError, yaml.YAMLError) as e:
+        print(f"[WARN] Could not load upstream_sources.yaml ({e}); alternate commit sources will not be fetched")
+        upstream_remotes = None
+
     # Get all PR commits
     pr_commits = get_pr_commits(args.repo, args.pr_branch, args.base_branch)
     if not pr_commits:
@@ -178,7 +182,16 @@ def main():
             pr_commit_desc = f"{short_hash} ({subject})"
 
             msg = get_commit_message(args.repo, sha)
-            upstream_hash = extract_upstream_hash(msg)
+            commit_header = CommitHeader.from_commit_body(commit_body=msg)
+
+            (upstream_remote, upstream_hash) = commit_header.extract_upstream_name_and_sha()
+            if upstream_remote and upstream_hash and upstream_remotes:
+                # Make sure the objects are available locally so interdiff works.
+                # commit-source can be a remote name (e.g. centos-stream-9) or a
+                # branch (e.g. linux-6.12.y); fetch_for_commit_source handles both.
+                upstream_remotes.fetch_for_commit_source(
+                    commit_source=upstream_remote, sha=upstream_hash, repo_dir=args.repo
+                )
         except RuntimeError as e:
             # Handle errors getting commit information
             any_differences = True
